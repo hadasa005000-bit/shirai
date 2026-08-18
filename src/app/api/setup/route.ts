@@ -27,14 +27,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "מפתח שגוי" }, { status: 403 });
   }
 
-  const existingAdmin = await db.user.findFirst({ where: { role: "ADMIN" } });
-  if (existingAdmin) {
-    return NextResponse.json({
-      ok: true,
-      message: "כבר קיים מנהל במערכת — לא נוצר משתמש נוסף.",
-    });
-  }
-
   const categories = [
     { name: "ניגוני שבת", slug: "shabbat" },
     { name: "שמחה וריקודים", slug: "simcha" },
@@ -46,6 +38,29 @@ export async function GET(req: NextRequest) {
   ];
   for (const c of categories) {
     await db.category.upsert({ where: { slug: c.slug }, update: {}, create: c });
+  }
+
+
+  // מקורות ברירת מחדל לבוט — בלעדיהם אין לו מה לסרוק.
+  const botSources = [
+    { label: "חיפוש — שירים חדשים חרדי", type: "youtube_search", value: "שיר חדש מוזיקה חסידית" },
+    { label: "חיפוש — ניגוני שבת", type: "youtube_search", value: "ניגוני שבת זמירות" },
+    { label: "חיפוש — שירי התעוררות", type: "youtube_search", value: "שיר התעוררות חזרה בתשובה" },
+    { label: "חיפוש — שמחה וריקודים", type: "youtube_search", value: "מדליי שמח חתונות חסידי" },
+    { label: "חיפוש — מקהלות ילדים", type: "youtube_search", value: "מקהלת ילדים שיר חרדי" },
+    { label: "חיפוש — אקפלה ספירת העומר", type: "youtube_search", value: "אקפלה ספירת העומר" },
+  ];
+  for (const s of botSources) {
+    const exists = await db.botSource.findFirst({ where: { value: s.value } });
+    if (!exists) await db.botSource.create({ data: s });
+  }
+
+  const existingAdmin = await db.user.findFirst({ where: { role: "ADMIN" } });
+  if (existingAdmin) {
+    return NextResponse.json({
+      ok: true,
+      message: "הקטגוריות ומקורות הבוט מעודכנים. מנהל כבר קיים — לא נוצר משתמש נוסף.",
+    });
   }
 
   const adminEmail = process.env.SEED_ADMIN_EMAIL || "[email protected]";
