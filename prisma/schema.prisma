@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum SongStatus {
+  PENDING   // נמצא ע"י הבוט, ממתין לאישור מנהל
+  PUBLISHED // מוצג באתר
+  HIDDEN    // הוסתר ע"י מנהל
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  favorites    Favorite[]
+}
+
+model Category {
+  id    String @id @default(cuid())
+  name  String @unique   // לדוגמה: התעוררות, שמחה, חתונה, ניגוני שבת
+  slug  String @unique
+  songs Song[]
+}
+
+model Artist {
+  id    String @id @default(cuid())
+  name  String @unique
+  slug  String @unique
+  songs Song[]
+}
+
+model Song {
+  id            String     @id @default(cuid())
+  title         String
+  artistId      String?
+  artist        Artist?    @relation(fields: [artistId], references: [id])
+  categoryId    String?
+  category      Category?  @relation(fields: [categoryId], references: [id])
+  youtubeId     String?    // מזהה סרטון יוטיוב לצפייה בקליפ
+  driveLink     String?    // קישור הורדה מגוגל דרייב
+  lyrics        String?
+  status        SongStatus @default(PENDING)
+  source        String     @default("manual") // manual | bot
+  sourceUrl     String?    // מהיכן הבוט מצא את זה
+  views         Int        @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  favorites     Favorite[]
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([artistId])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  songId    String
+  song      Song     @relation(fields: [songId], references: [id])
+  createdAt DateTime @default(now())
+
+  @@unique([userId, songId])
+}
+
+// ערוצים/מקורות שהבוט סורק כדי למצוא שירים חדשים
+model BotSource {
+  id             String   @id @default(cuid())
+  label          String   // שם ידידותי, לדוגמה "ערוץ יוטיוב - ישי לפידות"
+  type           String   // youtube_channel | youtube_search
+  value          String   // channel ID או מילת חיפוש
+  defaultCategoryId String?
+  active         Boolean  @default(true)
+  lastRunAt      DateTime?
+  createdAt      DateTime @default(now())
+}
+
+model BotRunLog {
+  id        String   @id @default(cuid())
+  startedAt DateTime @default(now())
+  finishedAt DateTime?
+  found     Int      @default(0)
+  added     Int      @default(0)
+  errors    String?
+}
