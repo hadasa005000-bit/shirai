@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import bcrypt from "bcryptjs";
 
+/**
+ * One-time bootstrap route for hosts without shell access (e.g. Render free tier).
+ * Visit /api/setup?key=YOUR_SETUP_SECRET once after first deploy to:
+ *  - create the default categories
+ *  - create the first admin user
+ *
+ * Protected by SETUP_SECRET so random visitors can't trigger it.
+ * After you've run it once, remove SETUP_SECRET from your environment
+ * variables (or just leave it — the route refuses to run twice, since it
+ * checks whether an admin already exists).
+ */
 export async function GET(req: NextRequest) {
   const key = req.nextUrl.searchParams.get("key");
   const expected = process.env.SETUP_SECRET;
@@ -47,6 +58,6 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    message: `נוצר משתמש מנהל: ${adminEmail}.`,
+    message: `נוצר משתמש מנהל: ${adminEmail}. היכנסו עם הסיסמה שהגדרתם ב-SEED_ADMIN_PASSWORD.`,
   });
 }

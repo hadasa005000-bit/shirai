@@ -42,7 +42,7 @@ export default async function SongPage({ params }: { params: { id: string } }) {
 
       <div className="flex flex-wrap gap-3 mb-8">
         {song.driveLink && (
-          
+          <a
             href={song.driveLink}
             target="_blank"
             rel="noopener noreferrer"
@@ -52,7 +52,7 @@ export default async function SongPage({ params }: { params: { id: string } }) {
           </a>
         )}
         {song.youtubeId && (
-          
+          <a
             href={`https://youtube.com/watch?v=${song.youtubeId}`}
             target="_blank"
             rel="noopener noreferrer"

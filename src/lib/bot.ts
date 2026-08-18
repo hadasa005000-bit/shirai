@@ -10,6 +10,13 @@ type YouTubeVideo = {
   publishedAt: string;
 };
 
+/**
+ * The bot only *discovers and links* — it never downloads or rehosts audio.
+ * Every song it creates goes in with status "PENDING" so a real person
+ * reviews it (and can add a legitimate Drive download link) before it's
+ * ever shown on the public site.
+ */
+
 async function fetchChannelUploads(channelId: string, apiKey: string): Promise<YouTubeVideo[]> {
   const searchUrl = `${YT_API_BASE}/search?key=${apiKey}&channelId=${channelId}&part=snippet&order=date&maxResults=10&type=video`;
   const res = await fetch(searchUrl);

@@ -19,6 +19,7 @@ export default async function HomePage() {
 
   return (
     <div>
+      {/* Hero */}
       <section className="bg-ink text-parchment relative overflow-hidden">
         <div className="absolute inset-0 bg-grooves opacity-40" aria-hidden />
         <div className="max-w-6xl mx-auto px-4 py-20 relative">
@@ -51,6 +52,7 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Categories */}
       <section className="max-w-6xl mx-auto px-4 py-12">
         <h2 className="font-display text-2xl font-bold mb-6">לפי נושא</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
@@ -71,6 +73,7 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Latest */}
       <section className="max-w-6xl mx-auto px-4 py-12">
         <h2 className="font-display text-2xl font-bold mb-6">שירים חדשים</h2>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
