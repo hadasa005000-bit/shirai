@@ -1,0 +1,45 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Frank Ruhl Libre", "David Libre", serif;
+  --font-body: "Heebo", "Assistant", sans-serif;
+  --font-mono: "IBM Plex Mono", monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #f7f1e3;
+  color: #231f20;
+}
+
+::selection {
+  background-color: #b8892b;
+  color: #f7f1e3;
+}
+
+/* visible keyboard focus everywhere */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #b8892b;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.vinyl {
+  background: radial-gradient(circle at center, #1b2430 0 18%, #0f151d 18% 20%, #1b2430 20% 100%);
+}
