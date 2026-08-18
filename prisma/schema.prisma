@@ -50,7 +50,10 @@ model Song {
   categoryId    String?
   category      Category?  @relation(fields: [categoryId], references: [id])
   youtubeId     String?    // מזהה סרטון יוטיוב לצפייה בקליפ
-  driveLink     String?    // קישור הורדה מגוגל דרייב
+  driveLink     String?    // קישור הורדה (דרייב אם נמצא, אחרת קישור הורדה אוטומטי)
+  description   String?    // תקציר/תיאור מהמקור
+  downloads     Int        @default(0)
+  publishedAt   DateTime?
   lyrics        String?
   status        SongStatus @default(PENDING)
   source        String     @default("manual") // manual | bot
@@ -61,6 +64,7 @@ model Song {
   favorites     Favorite[]
 
   @@index([status])
+  @@index([views])
   @@index([categoryId])
   @@index([artistId])
 }

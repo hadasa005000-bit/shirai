@@ -9,6 +9,15 @@ export const metadata: Metadata = {
   title: "היכל הניגון | שירים חסידיים וחרדיים",
   description:
     "קטלוג שירים חסידיים וחרדיים לפי נושאים — צפייה בקליפים והורדה, מתעדכן אוטומטית.",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#1B2430",
+  openGraph: {
+    title: "היכל הניגון | שירים חסידיים וחרדיים",
+    description: "אלפי שירים חסידיים לפי נושאים — צפייה בקליפ, הורדה וטופ 100.",
+    type: "website",
+    locale: "he_IL",
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 export default function RootLayout({

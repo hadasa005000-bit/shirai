@@ -1,57 +1,115 @@
 import { db } from "@/lib/db";
 import slugify from "slugify";
+import { classifySlug, normalizeTitle } from "@/lib/classify";
 
 const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
+
+/**
+ * תבנית קישור ההורדה האוטומטי כשלא נמצא קישור דרייב בתיאור הסרטון.
+ * אפשר לשנות דרך משתנה הסביבה DOWNLOAD_LINK_TEMPLATE (המקום של מזהה
+ * הסרטון מסומן ב-{id}).
+ */
+const DOWNLOAD_TEMPLATE =
+  process.env.DOWNLOAD_LINK_TEMPLATE || "https://www.ssyoutube.com/watch?v={id}";
+
+/** האם הבוט מפרסם ישר לאתר (ברירת מחדל) או שולח לאישור מנהל. */
+const AUTO_PUBLISH = process.env.BOT_AUTO_PUBLISH !== "false";
 
 type YouTubeVideo = {
   videoId: string;
   title: string;
   channelTitle: string;
   publishedAt: string;
+  description: string;
 };
 
-/**
- * The bot only *discovers and links* — it never downloads or rehosts audio.
- * Every song it creates goes in with status "PENDING" so a real person
- * reviews it (and can add a legitimate Drive download link) before it's
- * ever shown on the public site.
- */
-
-async function fetchChannelUploads(channelId: string, apiKey: string): Promise<YouTubeVideo[]> {
-  const searchUrl = `${YT_API_BASE}/search?key=${apiKey}&channelId=${channelId}&part=snippet&order=date&maxResults=10&type=video`;
-  const res = await fetch(searchUrl);
-  if (!res.ok) throw new Error(`YouTube API error (${res.status}): ${await res.text()}`);
-  const data = await res.json();
-  return (data.items ?? []).map((item: any) => ({
-    videoId: item.id.videoId,
-    title: item.snippet.title,
-    channelTitle: item.snippet.channelTitle,
-    publishedAt: item.snippet.publishedAt,
-  }));
+function mapItems(items: any[]): YouTubeVideo[] {
+  return (items ?? [])
+    .filter((item) => item.id?.videoId || item.id)
+    .map((item) => ({
+      videoId: typeof item.id === "string" ? item.id : item.id.videoId,
+      title: item.snippet?.title ?? "",
+      channelTitle: item.snippet?.channelTitle ?? "",
+      publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
+      description: item.snippet?.description ?? "",
+    }));
 }
 
-async function fetchSearchResults(query: string, apiKey: string): Promise<YouTubeVideo[]> {
-  const searchUrl = `${YT_API_BASE}/search?key=${apiKey}&q=${encodeURIComponent(
-    query
-  )}&part=snippet&order=date&maxResults=10&type=video`;
-  const res = await fetch(searchUrl);
+async function ytFetch(url: string) {
+  const res = await fetch(url);
   if (!res.ok) throw new Error(`YouTube API error (${res.status}): ${await res.text()}`);
-  const data = await res.json();
-  return (data.items ?? []).map((item: any) => ({
-    videoId: item.id.videoId,
-    title: item.snippet.title,
-    channelTitle: item.snippet.channelTitle,
-    publishedAt: item.snippet.publishedAt,
-  }));
+  return res.json();
+}
+
+async function fetchVideos(source: { type: string; value: string }, apiKey: string) {
+  const base =
+    source.type === "youtube_channel"
+      ? `${YT_API_BASE}/search?key=${apiKey}&channelId=${source.value}&part=snippet&order=date&maxResults=15&type=video`
+      : `${YT_API_BASE}/search?key=${apiKey}&q=${encodeURIComponent(
+          source.value
+        )}&part=snippet&order=date&maxResults=15&type=video`;
+
+  const list = mapItems((await ytFetch(base)).items);
+  if (list.length === 0) return list;
+
+  // שליפת התיאור המלא — שם מסתתרים לרוב קישורי ההורדה לדרייב.
+  const ids = list.map((v) => v.videoId).join(",");
+  try {
+    const details = await ytFetch(`${YT_API_BASE}/videos?key=${apiKey}&id=${ids}&part=snippet`);
+    const byId = new Map<string, string>(
+      (details.items ?? []).map((i: any) => [i.id, i.snippet?.description ?? ""])
+    );
+    for (const v of list) v.description = byId.get(v.videoId) || v.description;
+  } catch {
+    // ממשיכים עם התיאור החלקי מה-search
+  }
+  return list;
+}
+
+/** מחפש קישור הורדה אמיתי בתיאור הסרטון (דרייב / דרופבוקס / mp3 ישיר). */
+export function extractDownloadLink(description: string): string | null {
+  const patterns = [
+    /https?:\/\/drive\.google\.com\/\S+/i,
+    /https?:\/\/(?:www\.)?dropbox\.com\/\S+/i,
+    /https?:\/\/\S+\.mp3/i,
+  ];
+  for (const re of patterns) {
+    const match = description.match(re);
+    if (match) return match[0].replace(/[),.]+$/, "");
+  }
+  return null;
 }
 
 async function resolveArtist(name: string) {
-  const existing = await db.artist.findUnique({ where: { name } });
+  const clean = (name || "לא ידוע").trim();
+  const existing = await db.artist.findUnique({ where: { name: clean } });
   if (existing) return existing.id;
   const created = await db.artist.create({
-    data: { name, slug: slugify(name, { lower: true, strict: true }) + "-" + Date.now().toString(36) },
-  });
+    data: {
+      name: clean,
+      slug: slugify(clean, { lower: true, strict: true }) || "artist",
+    },
+  }).catch(async () =>
+    db.artist.create({
+      data: {
+        name: clean,
+        slug:
+          (slugify(clean, { lower: true, strict: true }) || "artist") +
+          "-" +
+          Date.now().toString(36),
+      },
+    })
+  );
   return created.id;
+}
+
+async function resolveCategoryId(text: string, fallbackId: string | null) {
+  const slug = classifySlug(text);
+  if (slug) {
+    const category = await db.category.findUnique({ where: { slug } });
+    if (category) return category.id;
+  }
+  return fallbackId;
 }
 
 export async function runBot() {
@@ -74,26 +132,43 @@ export async function runBot() {
 
   for (const source of sources) {
     try {
-      const videos =
-        source.type === "youtube_channel"
-          ? await fetchChannelUploads(source.value, apiKey)
-          : await fetchSearchResults(source.value, apiKey);
-
+      const videos = await fetchVideos(source, apiKey);
       found += videos.length;
 
       for (const video of videos) {
-        const existing = await db.song.findFirst({ where: { youtubeId: video.videoId } });
-        if (existing) continue;
+        if (!video.videoId) continue;
+
+        const byId = await db.song.findFirst({ where: { youtubeId: video.videoId } });
+        if (byId) continue;
+
+        // זיהוי כפילויות: אותו שיר שהועלה בערוץ אחר
+        const normalized = normalizeTitle(video.title);
+        if (normalized.length > 4) {
+          const similar = await db.song.findFirst({
+            where: { title: { contains: normalized.split(" ").slice(0, 3).join(" "), mode: "insensitive" } },
+          });
+          if (similar) continue;
+        }
 
         const artistId = await resolveArtist(video.channelTitle);
+        const categoryId = await resolveCategoryId(
+          `${video.title} ${video.description}`,
+          source.defaultCategoryId
+        );
+        const driveLink =
+          extractDownloadLink(video.description) ||
+          DOWNLOAD_TEMPLATE.replace("{id}", video.videoId);
 
         await db.song.create({
           data: {
             title: video.title,
             artistId,
-            categoryId: source.defaultCategoryId,
+            categoryId,
             youtubeId: video.videoId,
-            status: "PENDING",
+            driveLink,
+            description: video.description.slice(0, 2000) || null,
+            status: AUTO_PUBLISH ? "PUBLISHED" : "PENDING",
+            publishedAt: AUTO_PUBLISH ? new Date(video.publishedAt) : null,
             source: "bot",
             sourceUrl: `https://youtube.com/watch?v=${video.videoId}`,
           },

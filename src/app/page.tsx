@@ -5,12 +5,20 @@ import SongCard from "@/components/SongCard";
 export const revalidate = 60;
 
 export default async function HomePage() {
-  const [categories, latestSongs] = await Promise.all([
+  const [categories, latestSongs, topSongs] = await Promise.all([
     db.category.findMany({ orderBy: { name: "asc" } }).catch(() => []),
     db.song
       .findMany({
         where: { status: "PUBLISHED" },
         orderBy: { createdAt: "desc" },
+        take: 8,
+        include: { artist: true, category: true },
+      })
+      .catch(() => []),
+    db.song
+      .findMany({
+        where: { status: "PUBLISHED" },
+        orderBy: [{ views: "desc" }, { downloads: "desc" }],
         take: 8,
         include: { artist: true, category: true },
       })
@@ -72,6 +80,28 @@ export default async function HomePage() {
           )}
         </div>
       </section>
+
+      {/* Trending */}
+      {topSongs.length > 0 && (
+        <section className="max-w-6xl mx-auto px-4 py-12">
+          <div className="flex items-end justify-between mb-6">
+            <h2 className="font-display text-2xl font-bold">הכי מושמעים</h2>
+            <Link href="/trending" className="text-sm text-wine hover:text-gold">
+              לטופ 100 ←
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+            {topSongs.map((song, i) => (
+              <div key={song.id} className="relative">
+                <span className="absolute -top-2 -right-2 z-10 bg-wine text-parchment font-mono text-xs w-7 h-7 rounded-full flex items-center justify-center">
+                  {i + 1}
+                </span>
+                <SongCard song={song} />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Latest */}
       <section className="max-w-6xl mx-auto px-4 py-12">

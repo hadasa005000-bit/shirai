@@ -37,6 +37,18 @@ export default async function Header() {
           <div className="flex items-center gap-4">
             <OnlineCounter />
             <Link
+              href="/trending"
+              className="hidden sm:inline text-sm text-parchment/80 hover:text-gold-light transition-colors"
+            >
+              טופ 100
+            </Link>
+            <Link
+              href="/favorites"
+              className="hidden sm:inline text-sm text-parchment/80 hover:text-gold-light transition-colors"
+            >
+              שמורים
+            </Link>
+            <Link
               href="/search"
               className="text-sm text-parchment/80 hover:text-gold-light transition-colors"
             >

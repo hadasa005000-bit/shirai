@@ -1,0 +1,12 @@
+{
+  "name": "היכל הניגון",
+  "short_name": "היכל הניגון",
+  "description": "קטלוג שירים חסידיים וחרדיים לפי נושאים",
+  "lang": "he",
+  "dir": "rtl",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F1E3",
+  "theme_color": "#1B2430",
+  "icons": []
+}
