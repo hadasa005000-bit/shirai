@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 
 const STATUS_LABELS: Record<string, string> = {
@@ -9,7 +9,21 @@ const STATUS_LABELS: Record<string, string> = {
   HIDDEN: "מוסתר",
 };
 
-function SongThumb({ youtubeId, expanded, onToggle }: { youtubeId: string | null; expanded: boolean; onToggle: () => void }) {
+const SORT_LABELS: Record<string, string> = {
+  newest: "החדשים ביותר",
+  oldest: "הישנים ביותר",
+  az: "לפי א-ב (שם השיר)",
+};
+
+function SongThumb({
+  youtubeId,
+  expanded,
+  onToggle,
+}: {
+  youtubeId: string | null;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   if (!youtubeId) {
     return <div className="w-28 h-16 rounded-lg bg-ink/10 shrink-0" />;
   }
@@ -48,8 +62,9 @@ function InlinePlayer({ youtubeId }: { youtubeId: string }) {
 
 export default function AdminSongs() {
   const [songs, setSongs] = useState<any[]>([]);
-  // נפתח ישר על "ממתין לאישור" — זו המסך שרוב הזמן תרצו לעבוד בו
   const [filter, setFilter] = useState<string>("PENDING");
+  const [sort, setSort] = useState<string>("newest");
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function load() {
@@ -69,7 +84,6 @@ export default function AdminSongs() {
   }
 
   async function setStatus(id: string, status: string) {
-    // עדכון מיידי במסך כדי שהכרטיס ייעלם מיד בלחיצה, בלי לחכות לשרת
     setSongs((prev) => prev.filter((s) => s.id !== id));
     if (expandedId === id) setExpandedId(null);
     await fetch("/api/admin/songs", {
@@ -85,6 +99,31 @@ export default function AdminSongs() {
     await fetch(`/api/admin/songs?id=${id}`, { method: "DELETE" });
   }
 
+  // רשימת הקטגוריות הקיימות בפועל בתוך הרשימה הנוכחית, כדי שתוכלו לסנן
+  const categoryOptions = useMemo(() => {
+    const set = new Map<string, string>();
+    for (const s of songs) {
+      if (s.category) set.set(s.category.id, s.category.name);
+    }
+    return Array.from(set.entries());
+  }, [songs]);
+
+  const visibleSongs = useMemo(() => {
+    let list = songs;
+    if (categoryFilter) {
+      list = list.filter((s) => s.category?.id === categoryFilter);
+    }
+    const sorted = [...list];
+    if (sort === "newest") {
+      sorted.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (sort === "oldest") {
+      sorted.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    } else if (sort === "az") {
+      sorted.sort((a, b) => a.title.localeCompare(b.title, "he"));
+    }
+    return sorted;
+  }, [songs, sort, categoryFilter]);
+
   const isReviewMode = filter === "PENDING";
 
   return (
@@ -99,7 +138,7 @@ export default function AdminSongs() {
         </Link>
       </div>
 
-      <div className="flex gap-2 mb-4 text-sm">
+      <div className="flex gap-2 mb-4 text-sm flex-wrap">
         {["PENDING", "", "PUBLISHED", "HIDDEN"].map((s) => (
           <button
             key={s || "all"}
@@ -114,10 +153,44 @@ export default function AdminSongs() {
         ))}
       </div>
 
+      <div className="flex gap-3 mb-6 flex-wrap items-center text-sm">
+        <label className="flex items-center gap-2">
+          <span className="text-text/60">מיון:</span>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="border border-ink/20 rounded-lg px-2 py-1.5 bg-white/70 focus:border-gold outline-none"
+          >
+            {Object.entries(SORT_LABELS).map(([key, label]) => (
+              <option key={key} value={key}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {categoryOptions.length > 0 && (
+          <label className="flex items-center gap-2">
+            <span className="text-text/60">קטגוריה:</span>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="border border-ink/20 rounded-lg px-2 py-1.5 bg-white/70 focus:border-gold outline-none"
+            >
+              <option value="">הכל</option>
+              {categoryOptions.map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
       {isReviewMode ? (
-        // מצב סקירה מהירה: תמונה ממוזערת שנפתחת לנגן, וכפתורי ✓ / ✗
         <div className="grid gap-3">
-          {songs.map((song) => (
+          {visibleSongs.map((song) => (
             <div key={song.id} className="bg-white/60 border border-ink/10 rounded-xl p-4">
               <div className="flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-4 min-w-0">
@@ -129,7 +202,8 @@ export default function AdminSongs() {
                   <div className="min-w-0">
                     <p className="font-bold truncate">{song.title}</p>
                     <p className="text-xs text-text/50 truncate">
-                      {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"}
+                      {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"} ·{" "}
+                      {new Date(song.createdAt).toLocaleDateString("he-IL")}
                     </p>
                     {song.youtubeId && (
                       <button
@@ -161,17 +235,17 @@ export default function AdminSongs() {
               {expandedId === song.id && song.youtubeId && <InlinePlayer youtubeId={song.youtubeId} />}
             </div>
           ))}
-          {songs.length === 0 && (
+          {visibleSongs.length === 0 && (
             <p className="text-text/50 text-center py-10">
-              אין שירים ממתינים לאישור כרגע — הריצו את הבוט מדף &quot;בוט חיפוש
-              שירים&quot; כדי למצוא עוד.
+              {songs.length === 0
+                ? 'אין שירים ממתינים לאישור כרגע — הריצו את הבוט מדף "בוט חיפוש שירים" כדי למצוא עוד.'
+                : "אין שירים בקטגוריה שנבחרה."}
             </p>
           )}
         </div>
       ) : (
-        // מצב רגיל לשאר הסינונים (הכל / מפורסם / מוסתר) — גם כאן עם תמונה ונגן
         <div className="grid gap-2">
-          {songs.map((song) => (
+          {visibleSongs.map((song) => (
             <div key={song.id} className="bg-white/60 border border-ink/10 rounded-xl p-3">
               <div className="flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3 min-w-0">
@@ -184,7 +258,8 @@ export default function AdminSongs() {
                     <p className="font-bold truncate">{song.title}</p>
                     <p className="text-xs text-text/50">
                       {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"} ·{" "}
-                      {STATUS_LABELS[song.status]} · מקור: {song.source === "bot" ? "בוט" : "ידני"}
+                      {STATUS_LABELS[song.status]} · מקור: {song.source === "bot" ? "בוט" : "ידני"} ·{" "}
+                      {new Date(song.createdAt).toLocaleDateString("he-IL")}
                     </p>
                   </div>
                 </div>
@@ -213,7 +288,7 @@ export default function AdminSongs() {
               {expandedId === song.id && song.youtubeId && <InlinePlayer youtubeId={song.youtubeId} />}
             </div>
           ))}
-          {songs.length === 0 && <p className="px-4 py-6 text-text/50">אין שירים להצגה.</p>}
+          {visibleSongs.length === 0 && <p className="px-4 py-6 text-text/50">אין שירים להצגה.</p>}
         </div>
       )}
     </div>
