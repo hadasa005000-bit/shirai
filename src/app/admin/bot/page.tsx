@@ -7,10 +7,12 @@ export default function AdminBotPage() {
   const [logs, setLogs] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [running, setRunning] = useState(false);
+  const [seeding, setSeeding] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
+  const [seedResult, setSeedResult] = useState<any>(null);
   const [form, setForm] = useState({
     label: "",
-    type: "youtube_channel",
+    type: "youtube_search",
     value: "",
     defaultCategoryId: "",
   });
@@ -37,7 +39,7 @@ export default function AdminBotPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(form),
     });
-    setForm({ label: "", type: "youtube_channel", value: "", defaultCategoryId: "" });
+    setForm({ label: "", type: "youtube_search", value: "", defaultCategoryId: "" });
     load();
   }
 
@@ -56,26 +58,56 @@ export default function AdminBotPage() {
     load();
   }
 
+  async function seedDefaults() {
+    setSeeding(true);
+    setSeedResult(null);
+    const res = await fetch("/api/admin/bot-sources/seed", { method: "POST" });
+    const data = await res.json();
+    setSeedResult(data);
+    setSeeding(false);
+    load();
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="font-display text-2xl font-black">בוט חיפוש שירים</h1>
-        <button
-          onClick={runNow}
-          disabled={running}
-          className="bg-gold hover:bg-gold-light text-ink font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50"
-        >
-          {running ? "סורק..." : "▶ הרצה עכשיו"}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={seedDefaults}
+            disabled={seeding}
+            className="bg-ink text-parchment font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+          >
+            {seeding ? "מוסיף..." : "➕ הוסיפו מקורות חיפוש מובנים"}
+          </button>
+          <button
+            onClick={runNow}
+            disabled={running}
+            className="bg-gold hover:bg-gold-light text-ink font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+          >
+            {running ? "סורק..." : "▶ הרצה עכשיו"}
+          </button>
+        </div>
       </div>
 
-      <p className="text-sm text-text/60 mb-6 max-w-2xl">
-        הבוט סורק ערוצי יוטיוב או מונחי חיפוש שהגדרתם, מסווג כל שיר לנושא לפי
-        הכותרת והתיאור, מזהה כפילויות ומוסיף קישור הורדה. כברירת מחדל השירים
-        מתפרסמים מיד באתר; כדי שימתינו לאישור מנהל הגדירו{" "}
-        <b>BOT_AUTO_PUBLISH=false</b> במשתני הסביבה. נדרש <b>YOUTUBE_API_KEY</b>{" "}
-        כדי לסרוק. הבוט לא מארח קבצי שמע — הוא מקשר לקליפ ולקישור ההורדה.
+      <p className="text-sm text-text/60 mb-3 max-w-2xl">
+        הבוט סורק ערוצי יוטיוב או מונחי חיפוש, מסווג כל שיר לקטגוריה לפי
+        הכותרת והתיאור באופן אוטומטי, מזהה כפילויות, ומוסיף קישור הורדה.
+        הכפתור <b>&quot;הוסיפו מקורות חיפוש מובנים&quot;</b> מוסיף בלחיצה אחת רשימה
+        רחבה של חיפושים שמכסה את כל הנושאים (שבת, חתונה, פורים, פסח, שמחה,
+        התעוררות, ילדים, אקפלה ועוד) — כדי שלא תצטרכו להוסיף ערוץ אחרי ערוץ
+        ידנית. אפשר ללחוץ עליו רק פעם אחת; מקורות שכבר קיימים לא ייווצרו שוב.
       </p>
+      <p className="text-sm text-text/60 mb-6 max-w-2xl">
+        נדרש <b>YOUTUBE_API_KEY</b> במשתני הסביבה כדי לסרוק. הבוט לא מארח
+        קבצי שמע — הוא מקשר לקליפ ולקישור ההורדה.
+      </p>
+
+      {seedResult && (
+        <div className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-4 text-sm">
+          נוספו {seedResult.created ?? 0} מקורות חיפוש חדשים.
+        </div>
+      )}
 
       {runResult && (
         <div className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-6 text-sm">
@@ -87,7 +119,7 @@ export default function AdminBotPage() {
       )}
 
       <form onSubmit={addSource} className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-6 flex flex-col gap-3 max-w-lg">
-        <h2 className="font-bold">הוספת מקור לסריקה</h2>
+        <h2 className="font-bold">הוספת מקור ידני (אופציונלי)</h2>
         <input
           placeholder="שם ידידותי (לדוגמה: ערוץ יוטיוב - יעקב שוואקי)"
           value={form.label}
@@ -99,8 +131,8 @@ export default function AdminBotPage() {
           onChange={(e) => setForm({ ...form, type: e.target.value })}
           className="border border-ink/20 rounded-lg px-3 py-2 bg-white/70 focus:border-gold outline-none"
         >
-          <option value="youtube_channel">ערוץ יוטיוב (channel ID)</option>
           <option value="youtube_search">חיפוש חופשי ביוטיוב</option>
+          <option value="youtube_channel">ערוץ יוטיוב (channel ID)</option>
         </select>
         <input
           placeholder={
@@ -115,7 +147,7 @@ export default function AdminBotPage() {
           onChange={(e) => setForm({ ...form, defaultCategoryId: e.target.value })}
           className="border border-ink/20 rounded-lg px-3 py-2 bg-white/70 focus:border-gold outline-none"
         >
-          <option value="">ללא קטגוריית ברירת מחדל</option>
+          <option value="">ללא קטגוריית ברירת מחדל (זיהוי אוטומטי)</option>
           {categories.map((c) => (
             <option key={c.id} value={c.id}>
               {c.name}
@@ -127,8 +159,8 @@ export default function AdminBotPage() {
         </button>
       </form>
 
-      <h2 className="font-bold mb-2">מקורות פעילים</h2>
-      <div className="bg-white/60 border border-ink/10 rounded-xl divide-y divide-ink/10 mb-8">
+      <h2 className="font-bold mb-2">מקורות פעילים ({sources.length})</h2>
+      <div className="bg-white/60 border border-ink/10 rounded-xl divide-y divide-ink/10 mb-8 max-h-96 overflow-y-auto">
         {sources.map((s) => (
           <div key={s.id} className="flex items-center justify-between px-4 py-3">
             <div>
