@@ -9,10 +9,48 @@ const STATUS_LABELS: Record<string, string> = {
   HIDDEN: "מוסתר",
 };
 
+function SongThumb({ youtubeId, expanded, onToggle }: { youtubeId: string | null; expanded: boolean; onToggle: () => void }) {
+  if (!youtubeId) {
+    return <div className="w-28 h-16 rounded-lg bg-ink/10 shrink-0" />;
+  }
+  return (
+    <button
+      onClick={onToggle}
+      title={expanded ? "סגירת התצוגה" : "לחצו לצפייה בסרטון כאן"}
+      className="relative w-28 h-16 rounded-lg overflow-hidden shrink-0 group"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`https://i.ytimg.com/vi/${youtubeId}/mqdefault.jpg`}
+        alt=""
+        className="w-full h-full object-cover"
+      />
+      <span className="absolute inset-0 bg-black/30 group-hover:bg-black/50 flex items-center justify-center text-white text-xl transition-colors">
+        {expanded ? "✕" : "▶"}
+      </span>
+    </button>
+  );
+}
+
+function InlinePlayer({ youtubeId }: { youtubeId: string }) {
+  return (
+    <div className="w-full aspect-video max-w-xl rounded-lg overflow-hidden border border-ink/10 mt-3">
+      <iframe
+        className="w-full h-full"
+        src={`https://www.youtube.com/embed/${youtubeId}?autoplay=1`}
+        title="תצוגה מקדימה"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+      />
+    </div>
+  );
+}
+
 export default function AdminSongs() {
   const [songs, setSongs] = useState<any[]>([]);
   // נפתח ישר על "ממתין לאישור" — זו המסך שרוב הזמן תרצו לעבוד בו
   const [filter, setFilter] = useState<string>("PENDING");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch(`/api/admin/songs${filter ? `?status=${filter}` : ""}`);
@@ -22,12 +60,18 @@ export default function AdminSongs() {
 
   useEffect(() => {
     load();
+    setExpandedId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  function toggleExpand(id: string) {
+    setExpandedId((prev) => (prev === id ? null : id));
+  }
 
   async function setStatus(id: string, status: string) {
     // עדכון מיידי במסך כדי שהכרטיס ייעלם מיד בלחיצה, בלי לחכות לשרת
     setSongs((prev) => prev.filter((s) => s.id !== id));
+    if (expandedId === id) setExpandedId(null);
     await fetch("/api/admin/songs", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -37,6 +81,7 @@ export default function AdminSongs() {
 
   async function remove(id: string) {
     setSongs((prev) => prev.filter((s) => s.id !== id));
+    if (expandedId === id) setExpandedId(null);
     await fetch(`/api/admin/songs?id=${id}`, { method: "DELETE" });
   }
 
@@ -70,55 +115,50 @@ export default function AdminSongs() {
       </div>
 
       {isReviewMode ? (
-        // מצב סקירה מהירה: כרטיסים גדולים עם ✓ / ✗ בלבד
+        // מצב סקירה מהירה: תמונה ממוזערת שנפתחת לנגן, וכפתורי ✓ / ✗
         <div className="grid gap-3">
           {songs.map((song) => (
-            <div
-              key={song.id}
-              className="bg-white/60 border border-ink/10 rounded-xl p-4 flex items-center justify-between gap-4 flex-wrap"
-            >
-              <div className="flex items-center gap-4 min-w-0">
-                {song.youtubeId && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={`https://i.ytimg.com/vi/${song.youtubeId}/mqdefault.jpg`}
-                    alt=""
-                    className="w-24 h-14 object-cover rounded-lg shrink-0"
+            <div key={song.id} className="bg-white/60 border border-ink/10 rounded-xl p-4">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-4 min-w-0">
+                  <SongThumb
+                    youtubeId={song.youtubeId}
+                    expanded={expandedId === song.id}
+                    onToggle={() => toggleExpand(song.id)}
                   />
-                )}
-                <div className="min-w-0">
-                  <p className="font-bold truncate">{song.title}</p>
-                  <p className="text-xs text-text/50 truncate">
-                    {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"}
-                  </p>
-                  {song.youtubeId && (
-                    <a
-                      href={`https://youtube.com/watch?v=${song.youtubeId}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-wine hover:underline"
-                    >
-                      צפייה ביוטיוב לפני אישור ↗
-                    </a>
-                  )}
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{song.title}</p>
+                    <p className="text-xs text-text/50 truncate">
+                      {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"}
+                    </p>
+                    {song.youtubeId && (
+                      <button
+                        onClick={() => toggleExpand(song.id)}
+                        className="text-xs text-wine hover:underline"
+                      >
+                        {expandedId === song.id ? "סגירת הנגן" : "▶ צפייה כאן לפני אישור"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    onClick={() => setStatus(song.id, "PUBLISHED")}
+                    title="אישור ופרסום"
+                    className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-2xl font-bold flex items-center justify-center transition-colors"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    onClick={() => remove(song.id)}
+                    title="דחייה ומחיקה"
+                    className="w-12 h-12 rounded-full bg-wine hover:bg-red-800 text-white text-2xl font-bold flex items-center justify-center transition-colors"
+                  >
+                    ✗
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  onClick={() => setStatus(song.id, "PUBLISHED")}
-                  title="אישור ופרסום"
-                  className="w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white text-2xl font-bold flex items-center justify-center transition-colors"
-                >
-                  ✓
-                </button>
-                <button
-                  onClick={() => remove(song.id)}
-                  title="דחייה ומחיקה"
-                  className="w-12 h-12 rounded-full bg-wine hover:bg-red-800 text-white text-2xl font-bold flex items-center justify-center transition-colors"
-                >
-                  ✗
-                </button>
-              </div>
+              {expandedId === song.id && song.youtubeId && <InlinePlayer youtubeId={song.youtubeId} />}
             </div>
           ))}
           {songs.length === 0 && (
@@ -129,38 +169,48 @@ export default function AdminSongs() {
           )}
         </div>
       ) : (
-        // מצב רגיל לשאר הסינונים (הכל / מפורסם / מוסתר)
-        <div className="bg-white/60 border border-ink/10 rounded-xl divide-y divide-ink/10">
+        // מצב רגיל לשאר הסינונים (הכל / מפורסם / מוסתר) — גם כאן עם תמונה ונגן
+        <div className="grid gap-2">
           {songs.map((song) => (
-            <div key={song.id} className="flex items-center justify-between gap-3 px-4 py-3 flex-wrap">
-              <div className="min-w-0">
-                <p className="font-bold truncate">{song.title}</p>
-                <p className="text-xs text-text/50">
-                  {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"} ·{" "}
-                  {STATUS_LABELS[song.status]} · מקור: {song.source === "bot" ? "בוט" : "ידני"}
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-sm shrink-0">
-                {song.status !== "PUBLISHED" && (
-                  <button
-                    onClick={() => setStatus(song.id, "PUBLISHED")}
-                    className="text-emerald-700 hover:underline"
-                  >
-                    פרסום
+            <div key={song.id} className="bg-white/60 border border-ink/10 rounded-xl p-3">
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <SongThumb
+                    youtubeId={song.youtubeId}
+                    expanded={expandedId === song.id}
+                    onToggle={() => toggleExpand(song.id)}
+                  />
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{song.title}</p>
+                    <p className="text-xs text-text/50">
+                      {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"} ·{" "}
+                      {STATUS_LABELS[song.status]} · מקור: {song.source === "bot" ? "בוט" : "ידני"}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-sm shrink-0">
+                  {song.status !== "PUBLISHED" && (
+                    <button
+                      onClick={() => setStatus(song.id, "PUBLISHED")}
+                      className="text-emerald-700 hover:underline"
+                    >
+                      פרסום
+                    </button>
+                  )}
+                  {song.status !== "HIDDEN" && (
+                    <button
+                      onClick={() => setStatus(song.id, "HIDDEN")}
+                      className="text-amber-700 hover:underline"
+                    >
+                      הסתרה
+                    </button>
+                  )}
+                  <button onClick={() => remove(song.id)} className="text-wine hover:underline">
+                    מחיקה
                   </button>
-                )}
-                {song.status !== "HIDDEN" && (
-                  <button
-                    onClick={() => setStatus(song.id, "HIDDEN")}
-                    className="text-amber-700 hover:underline"
-                  >
-                    הסתרה
-                  </button>
-                )}
-                <button onClick={() => remove(song.id)} className="text-wine hover:underline">
-                  מחיקה
-                </button>
+                </div>
               </div>
+              {expandedId === song.id && song.youtubeId && <InlinePlayer youtubeId={song.youtubeId} />}
             </div>
           ))}
           {songs.length === 0 && <p className="px-4 py-6 text-text/50">אין שירים להצגה.</p>}
