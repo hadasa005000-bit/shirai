@@ -70,16 +70,16 @@ export default function AdminBotPage() {
       </div>
 
       <p className="text-sm text-text/60 mb-6 max-w-2xl">
-        הבוט סורק ערוצי יוטיוב או מונחי חיפוש שהגדרתם ומוצא שירים חדשים. כל שיר
-        שנמצא נכנס כ<b>&quot;ממתין לאישור&quot;</b> ולא מתפרסם באתר עד שתאשרו
-        אותו בדף השירים — כך שאתם תמיד שולטים במה שמוצג. הבוט לא מוריד או
-        מארח קבצי שמע — הוא רק מקשר לקליפ ביוטיוב.
+        הבוט סורק ערוצי יוטיוב או מונחי חיפוש שהגדרתם, מסווג כל שיר לנושא לפי
+        הכותרת והתיאור, מזהה כפילויות ומוסיף קישור הורדה. כברירת מחדל השירים
+        מתפרסמים מיד באתר; כדי שימתינו לאישור מנהל הגדירו{" "}
+        <b>BOT_AUTO_PUBLISH=false</b> במשתני הסביבה. נדרש <b>YOUTUBE_API_KEY</b>{" "}
+        כדי לסרוק. הבוט לא מארח קבצי שמע — הוא מקשר לקליפ ולקישור ההורדה.
       </p>
 
       {runResult && (
         <div className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-6 text-sm">
-          נמצאו {runResult.found ?? 0} סרטונים, נוספו {runResult.added ?? 0} שירים חדשים
-          לרשימת ההמתנה.
+          נמצאו {runResult.found ?? 0} סרטונים, נוספו {runResult.added ?? 0} שירים חדשים.
           {runResult.errors?.length > 0 && (
             <p className="text-wine mt-1">שגיאות: {runResult.errors.join(" | ")}</p>
           )}
