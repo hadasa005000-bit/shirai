@@ -10,6 +10,8 @@ export default function AdminBotPage() {
   const [seeding, setSeeding] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
   const [seedResult, setSeedResult] = useState<any>(null);
+  const [autoPublish, setAutoPublish] = useState<boolean>(false);
+  const [savingToggle, setSavingToggle] = useState(false);
   const [form, setForm] = useState({
     label: "",
     type: "youtube_search",
@@ -18,18 +20,32 @@ export default function AdminBotPage() {
   });
 
   async function load() {
-    const [srcRes, catRes] = await Promise.all([
+    const [srcRes, catRes, settingsRes] = await Promise.all([
       fetch("/api/admin/bot-sources").then((r) => r.json()),
       fetch("/api/admin/categories").then((r) => r.json()),
+      fetch("/api/admin/settings").then((r) => r.json()),
     ]);
     setSources(srcRes.sources ?? []);
     setLogs(srcRes.logs ?? []);
     setCategories(catRes.categories ?? []);
+    setAutoPublish(!!settingsRes.botAutoPublish);
   }
 
   useEffect(() => {
     load();
   }, []);
+
+  async function toggleAutoPublish() {
+    const next = !autoPublish;
+    setAutoPublish(next); // עדכון מיידי במסך
+    setSavingToggle(true);
+    await fetch("/api/admin/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ botAutoPublish: next }),
+    });
+    setSavingToggle(false);
+  }
 
   async function addSource(e: React.FormEvent) {
     e.preventDefault();
@@ -70,7 +86,7 @@ export default function AdminBotPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h1 className="font-display text-2xl font-black">בוט חיפוש שירים</h1>
         <div className="flex gap-2">
           <button
@@ -90,13 +106,43 @@ export default function AdminBotPage() {
         </div>
       </div>
 
+      {/* המתג המרכזי: אוטומטי מול אישור ידני */}
+      <div className="bg-white/70 border border-gold/40 rounded-xl p-4 mb-6 flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <p className="font-bold">
+            {autoPublish ? "פרסום אוטומטי מופעל" : "כל שיר עובר דרככם לאישור"}
+          </p>
+          <p className="text-sm text-text/60 mt-0.5">
+            {autoPublish
+              ? "שירים שהבוט מוצא עולים ישר לאתר החי, בלי לעבור אצלכם."
+              : "שירים שהבוט מוצא נכנסים ל\"ממתין לאישור\" ולא יופיעו באתר עד שתלחצו ✓."}
+          </p>
+        </div>
+        <button
+          onClick={toggleAutoPublish}
+          disabled={savingToggle}
+          role="switch"
+          aria-checked={autoPublish}
+          className={`relative w-16 h-9 rounded-full transition-colors shrink-0 ${
+            autoPublish ? "bg-emerald-600" : "bg-ink/20"
+          }`}
+        >
+          <span
+            className={`absolute top-1 w-7 h-7 rounded-full bg-white shadow transition-transform ${
+              autoPublish ? "-translate-x-1" : "-translate-x-8"
+            }`}
+            style={{ right: "0.25rem" }}
+          />
+        </button>
+      </div>
+
       <p className="text-sm text-text/60 mb-3 max-w-2xl">
         הבוט סורק ערוצי יוטיוב או מונחי חיפוש, מסווג כל שיר לקטגוריה לפי
         הכותרת והתיאור באופן אוטומטי, מזהה כפילויות, ומוסיף קישור הורדה.
         הכפתור <b>&quot;הוסיפו מקורות חיפוש מובנים&quot;</b> מוסיף בלחיצה אחת רשימה
-        רחבה של חיפושים שמכסה את כל הנושאים (שבת, חתונה, פורים, פסח, שמחה,
-        התעוררות, ילדים, אקפלה ועוד) — כדי שלא תצטרכו להוסיף ערוץ אחרי ערוץ
-        ידנית. אפשר ללחוץ עליו רק פעם אחת; מקורות שכבר קיימים לא ייווצרו שוב.
+        רחבה של חיפושים שמכסה את כל הנושאים — כדי שלא תצטרכו להוסיף ערוץ
+        אחרי ערוץ ידנית. אפשר ללחוץ עליו רק פעם אחת; מקורות שכבר קיימים לא
+        ייווצרו שוב.
       </p>
       <p className="text-sm text-text/60 mb-6 max-w-2xl">
         נדרש <b>YOUTUBE_API_KEY</b> במשתני הסביבה כדי לסרוק. הבוט לא מארח
