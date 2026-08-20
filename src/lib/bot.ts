@@ -12,8 +12,13 @@ const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
 const DOWNLOAD_TEMPLATE =
   process.env.DOWNLOAD_LINK_TEMPLATE || "https://www.ssyoutube.com/watch?v={id}";
 
-/** האם הבוט מפרסם ישר לאתר (ברירת מחדל) או שולח לאישור מנהל. */
-const AUTO_PUBLISH = process.env.BOT_AUTO_PUBLISH !== "false";
+/** האם הבוט מפרסם ישר לאתר או שולח לאישור מנהל — נשלט מהדשבורד (/admin/bot). */
+async function getAutoPublish(): Promise<boolean> {
+  const settings = await db.appSettings.findUnique({ where: { id: "singleton" } });
+  if (settings) return settings.botAutoPublish;
+  // עד שמישהו ישמור הגדרה מהדשבורד, ברירת המחדל הבטוחה היא "לא לפרסם לבד"
+  return false;
+}
 
 type YouTubeVideo = {
   videoId: string;
@@ -128,6 +133,7 @@ export async function runBot() {
     return { found, added, errors };
   }
 
+  const autoPublish = await getAutoPublish();
   const sources = await db.botSource.findMany({ where: { active: true } });
 
   for (const source of sources) {
@@ -167,8 +173,8 @@ export async function runBot() {
             youtubeId: video.videoId,
             driveLink,
             description: video.description.slice(0, 2000) || null,
-            status: AUTO_PUBLISH ? "PUBLISHED" : "PENDING",
-            publishedAt: AUTO_PUBLISH ? new Date(video.publishedAt) : null,
+            status: autoPublish ? "PUBLISHED" : "PENDING",
+            publishedAt: autoPublish ? new Date(video.publishedAt) : null,
             source: "bot",
             sourceUrl: `https://youtube.com/watch?v=${video.videoId}`,
           },
