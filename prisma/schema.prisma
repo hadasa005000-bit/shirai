@@ -100,3 +100,8 @@ model BotRunLog {
   added     Int      @default(0)
   errors    String?
 }
+
+model AppSettings {
+  id             String  @id @default("singleton")
+  botAutoPublish Boolean @default(false)
+}
