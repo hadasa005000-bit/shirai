@@ -77,5 +77,18 @@ export async function POST() {
     created += 1;
   }
 
+  // מצעד הטרנדים של יוטיוב ישראל — מקור עצמאי, לא תלוי ברשימת שמות
+  const trendingExisting = await db.botSource.findFirst({ where: { type: "youtube_trending" } });
+  if (!trendingExisting) {
+    await db.botSource.create({
+      data: {
+        label: "מצעד יוטיוב ישראל — מוזיקה",
+        type: "youtube_trending",
+        value: "IL",
+      },
+    });
+    created += 1;
+  }
+
   return NextResponse.json({ ok: true, created });
 }

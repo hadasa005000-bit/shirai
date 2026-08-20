@@ -47,17 +47,39 @@ async function ytFetch(url: string) {
   return res.json();
 }
 
-async function fetchVideos(source: { type: string; value: string }, apiKey: string) {
-  const base =
-    source.type === "youtube_channel"
-      ? `${YT_API_BASE}/search?key=${apiKey}&channelId=${source.value}&part=snippet&order=date&maxResults=15&type=video`
-      : `${YT_API_BASE}/search?key=${apiKey}&q=${encodeURIComponent(
-          source.value
-        )}&part=snippet&order=date&maxResults=15&type=video`;
+/**
+ * סריקת ערוץ דרך פלייליסט ה"הועלה" שלו (playlistItems) עולה יחידת מכסה
+ * אחת בלבד — לעומת 100 יחידות בקריאת search.list. מזהה הפלייליסט הזה
+ * מתקבל תמיד מ-UC בתחילת מזהה הערוץ, מוחלף ב-UU.
+ */
+async function fetchChannelUploads(channelId: string, apiKey: string): Promise<YouTubeVideo[]> {
+  if (!channelId.startsWith("UC")) return [];
+  const uploadsPlaylistId = "UU" + channelId.slice(2);
+  const url = `${YT_API_BASE}/playlistItems?key=${apiKey}&playlistId=${uploadsPlaylistId}&part=snippet&maxResults=15`;
+  const data = await ytFetch(url);
+  return (data.items ?? [])
+    .map((item: any) => ({
+      videoId: item.snippet?.resourceId?.videoId ?? "",
+      title: item.snippet?.title ?? "",
+      channelTitle: item.snippet?.videoOwnerChannelTitle ?? item.snippet?.channelTitle ?? "",
+      channelId: item.snippet?.videoOwnerChannelId ?? channelId,
+      publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
+      // בפלייליסט ה"הועלה" התיאור המלא כבר כלול, אין צורך בקריאה נוספת
+      description: item.snippet?.description ?? "",
+    }))
+    .filter((v: YouTubeVideo) => v.videoId);
+}
 
-  const list = mapItems((await ytFetch(base)).items);
+/** חיפוש חופשי (מילות מפתח) — היחיד שבאמת דורש את search.list היקר. */
+async function fetchSearchResults(query: string, apiKey: string): Promise<YouTubeVideo[]> {
+  const url = `${YT_API_BASE}/search?key=${apiKey}&q=${encodeURIComponent(
+    query
+  )}&part=snippet&order=date&maxResults=15&type=video`;
+  const list = mapItems((await ytFetch(url)).items);
   if (list.length === 0) return list;
 
+  // search.list מחזיר תיאור מקוצר — קריאה אחת נוספת (עולה יחידה אחת בלבד,
+  // לא לכל וידאו בנפרד) שולפת את התיאור המלא לכל הסרטונים יחד.
   const ids = list.map((v) => v.videoId).join(",");
   try {
     const details = await ytFetch(`${YT_API_BASE}/videos?key=${apiKey}&id=${ids}&part=snippet`);
@@ -69,6 +91,41 @@ async function fetchVideos(source: { type: string; value: string }, apiKey: stri
     // ממשיכים עם התיאור החלקי מה-search
   }
   return list;
+}
+
+async function fetchVideos(source: { type: string; value: string }, apiKey: string) {
+  if (source.type === "youtube_channel") return fetchChannelUploads(source.value, apiKey);
+  if (source.type === "youtube_trending") return fetchTrending(source.value || "IL", apiKey);
+  // חיפוש שהוזן עם שנה קבועה מתעדכן אוטומטית לשנה הנוכחית בזמן ריצה
+  return fetchSearchResults(withCurrentYear(source.value), apiKey);
+}
+
+/** מחליף כל מופע של שנה בת 4 ספרות (למשל "2026") בשנה הנוכחית בפועל. */
+function withCurrentYear(query: string): string {
+  const year = new Date().getFullYear().toString();
+  return query.replace(/20\d{2}/, year);
+}
+
+/**
+ * מצעד הטרנדים של יוטיוב ישראל, מסונן לקטגוריית מוזיקה (10) — עולה יחידת
+ * מכסה אחת בלבד. מביא כל מה שפופולרי עכשיו במוזיקה בישראל, בלי תלות
+ * ברשימת שמות קבועה. שים לב: זה כולל מוזיקה ישראלית כללית ולא רק
+ * חסידית/דתית — לכן כל שיר עדיין עובר אצלכם ל-✓/✗ לפני פרסום, וממנו
+ * (בכוונה) לא נוצרים מקורות קבועים חדשים אוטומטית.
+ */
+async function fetchTrending(regionCode: string, apiKey: string): Promise<YouTubeVideo[]> {
+  const url = `${YT_API_BASE}/videos?key=${apiKey}&chart=mostPopular&regionCode=${regionCode}&videoCategoryId=10&part=snippet&maxResults=25`;
+  const data = await ytFetch(url);
+  return (data.items ?? [])
+    .map((item: any) => ({
+      videoId: item.id ?? "",
+      title: item.snippet?.title ?? "",
+      channelTitle: item.snippet?.channelTitle ?? "",
+      channelId: item.snippet?.channelId ?? "",
+      publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
+      description: item.snippet?.description ?? "",
+    }))
+    .filter((v: YouTubeVideo) => v.videoId);
 }
 
 /** מחפש קישור הורדה אמיתי בתיאור הסרטון (דרייב / דרופבוקס / mp3 ישיר). */
@@ -85,10 +142,10 @@ export function extractDownloadLink(description: string): string | null {
   return null;
 }
 
-async function resolveArtist(name: string) {
+async function resolveArtist(name: string): Promise<{ id: string; isNew: boolean }> {
   const clean = (name || "לא ידוע").trim();
   const existing = await db.artist.findUnique({ where: { name: clean } });
-  if (existing) return existing.id;
+  if (existing) return { id: existing.id, isNew: false };
   const created = await db.artist
     .create({
       data: {
@@ -107,7 +164,25 @@ async function resolveArtist(name: string) {
         },
       })
     );
-  return created.id;
+  return { id: created.id, isNew: true };
+}
+
+/**
+ * זמר/מקהלה חדשים שהתגלו — מוסיפים גם חיפוש-מילת-מפתח על שמם (בנוסף
+ * לערוץ עצמו), כדי לתפוס שיתופי פעולה וסינגלים שהועלו בערוצים אחרים,
+ * לא רק בערוץ הבית שלהם.
+ */
+async function autoAddArtistSearchSource(artistName: string) {
+  const query = `${artistName} שיר חדש`;
+  const existing = await db.botSource.findFirst({ where: { type: "youtube_search", value: query } });
+  if (existing) return;
+  await db.botSource.create({
+    data: {
+      label: `אוטומטי — חיפוש ${artistName}`,
+      type: "youtube_search",
+      value: query,
+    },
+  });
 }
 
 async function resolveCategoryId(text: string, fallbackId: string | null) {
@@ -120,13 +195,32 @@ async function resolveCategoryId(text: string, fallbackId: string | null) {
 }
 
 /**
+ * מילים בשם ערוץ שמסמנות שזה כנראה לא ערוץ מוזיקה (חדשות, גופים ציבוריים,
+ * מוסדות וכו') — כדי שהבוט לא יוסיף אותם אוטומטית כמקור קבוע רק כי הם
+ * הופיעו פעם אחת בתוצאות חיפוש. אפשר להרחיב את הרשימה בהמשך.
+ */
+const CHANNEL_BLOCKLIST = [
+  "חדשות", "כאן", "ערוץ 7", "בשבע", "כיפה", "משטרת ישראל", "משטרה",
+  "מועצה אזורית", "מועצה מקומית", "עיריית", "דיור מוגן", "בית ספר",
+  "ישיבת", "תלמוד תורה", "וואטסאפ", "whatsapp", "news", "radio", "רדיו",
+  "טלוויזיה", "עיתון", "תאגיד השידור",
+];
+
+function looksLikeNonMusicChannel(channelTitle: string): boolean {
+  const lower = channelTitle.toLowerCase();
+  return CHANNEL_BLOCKLIST.some((word) => lower.includes(word.toLowerCase()));
+}
+
+/**
  * הרחבה עצמית: אם שיר שהתקבל מגיע מערוץ שעדיין אין לו מקור "youtube_channel"
  * קבוע, יוצרים לו אחד אוטומטית. כך בריצה הבאה הבוט כבר סורק את כל הערוץ
  * של אותו זמר/מקהלה, לא רק את הסרטון הבודד שנמצא בחיפוש — בלי שהמנהל
- * יצטרך להוסיף אותו ידנית.
+ * יצטרך להוסיף אותו ידנית. ערוצים שנראים כמו חדשות/גופים ציבוריים לא
+ * נוספים, גם אם שיר בודד שלהם עבר את הסינון.
  */
 async function autoAddChannelSource(channelId: string, channelTitle: string, categoryId: string | null) {
   if (!channelId) return;
+  if (looksLikeNonMusicChannel(channelTitle)) return;
   const existing = await db.botSource.findFirst({
     where: { type: "youtube_channel", value: channelId },
   });
@@ -182,7 +276,7 @@ export async function runBot() {
           if (similar) continue;
         }
 
-        const artistId = await resolveArtist(video.channelTitle);
+        const { id: artistId, isNew: isNewArtist } = await resolveArtist(video.channelTitle);
         const categoryId = await resolveCategoryId(
           `${video.title} ${video.description}`,
           source.defaultCategoryId
@@ -207,9 +301,14 @@ export async function runBot() {
         });
         added += 1;
 
-        // הרחבה עצמית — רק ממקורות חיפוש, כדי לא ליצור לולאה על מקור ערוץ שכבר קיים
+        // הרחבה עצמית — רק ממקורות חיפוש מילות-מפתח מקוריים (לא ממצעד
+        // הטרנדים ולא מערוצים שכבר נוספו), כדי לשמור על התאמה לקהל היעד
+        // ולא להזרים אוטומטית מוזיקה כללית לתוך רשימת המקורות הקבועה.
         if (source.type === "youtube_search") {
           await autoAddChannelSource(video.channelId, video.channelTitle, categoryId);
+          if (isNewArtist) {
+            await autoAddArtistSearchSource(video.channelTitle);
+          }
         }
       }
 
