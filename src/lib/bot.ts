@@ -16,7 +16,6 @@ const DOWNLOAD_TEMPLATE =
 async function getAutoPublish(): Promise<boolean> {
   const settings = await db.appSettings.findUnique({ where: { id: "singleton" } });
   if (settings) return settings.botAutoPublish;
-  // עד שמישהו ישמור הגדרה מהדשבורד, ברירת המחדל הבטוחה היא "לא לפרסם לבד"
   return false;
 }
 
@@ -24,6 +23,7 @@ type YouTubeVideo = {
   videoId: string;
   title: string;
   channelTitle: string;
+  channelId: string;
   publishedAt: string;
   description: string;
 };
@@ -35,6 +35,7 @@ function mapItems(items: any[]): YouTubeVideo[] {
       videoId: typeof item.id === "string" ? item.id : item.id.videoId,
       title: item.snippet?.title ?? "",
       channelTitle: item.snippet?.channelTitle ?? "",
+      channelId: item.snippet?.channelId ?? "",
       publishedAt: item.snippet?.publishedAt ?? new Date().toISOString(),
       description: item.snippet?.description ?? "",
     }));
@@ -57,7 +58,6 @@ async function fetchVideos(source: { type: string; value: string }, apiKey: stri
   const list = mapItems((await ytFetch(base)).items);
   if (list.length === 0) return list;
 
-  // שליפת התיאור המלא — שם מסתתרים לרוב קישורי ההורדה לדרייב.
   const ids = list.map((v) => v.videoId).join(",");
   try {
     const details = await ytFetch(`${YT_API_BASE}/videos?key=${apiKey}&id=${ids}&part=snippet`);
@@ -89,22 +89,24 @@ async function resolveArtist(name: string) {
   const clean = (name || "לא ידוע").trim();
   const existing = await db.artist.findUnique({ where: { name: clean } });
   if (existing) return existing.id;
-  const created = await db.artist.create({
-    data: {
-      name: clean,
-      slug: slugify(clean, { lower: true, strict: true }) || "artist",
-    },
-  }).catch(async () =>
-    db.artist.create({
+  const created = await db.artist
+    .create({
       data: {
         name: clean,
-        slug:
-          (slugify(clean, { lower: true, strict: true }) || "artist") +
-          "-" +
-          Date.now().toString(36),
+        slug: slugify(clean, { lower: true, strict: true }) || "artist",
       },
     })
-  );
+    .catch(async () =>
+      db.artist.create({
+        data: {
+          name: clean,
+          slug:
+            (slugify(clean, { lower: true, strict: true }) || "artist") +
+            "-" +
+            Date.now().toString(36),
+        },
+      })
+    );
   return created.id;
 }
 
@@ -115,6 +117,29 @@ async function resolveCategoryId(text: string, fallbackId: string | null) {
     if (category) return category.id;
   }
   return fallbackId;
+}
+
+/**
+ * הרחבה עצמית: אם שיר שהתקבל מגיע מערוץ שעדיין אין לו מקור "youtube_channel"
+ * קבוע, יוצרים לו אחד אוטומטית. כך בריצה הבאה הבוט כבר סורק את כל הערוץ
+ * של אותו זמר/מקהלה, לא רק את הסרטון הבודד שנמצא בחיפוש — בלי שהמנהל
+ * יצטרך להוסיף אותו ידנית.
+ */
+async function autoAddChannelSource(channelId: string, channelTitle: string, categoryId: string | null) {
+  if (!channelId) return;
+  const existing = await db.botSource.findFirst({
+    where: { type: "youtube_channel", value: channelId },
+  });
+  if (existing) return;
+
+  await db.botSource.create({
+    data: {
+      label: `אוטומטי — ${channelTitle}`,
+      type: "youtube_channel",
+      value: channelId,
+      defaultCategoryId: categoryId,
+    },
+  });
 }
 
 export async function runBot() {
@@ -147,11 +172,12 @@ export async function runBot() {
         const byId = await db.song.findFirst({ where: { youtubeId: video.videoId } });
         if (byId) continue;
 
-        // זיהוי כפילויות: אותו שיר שהועלה בערוץ אחר
         const normalized = normalizeTitle(video.title);
         if (normalized.length > 4) {
           const similar = await db.song.findFirst({
-            where: { title: { contains: normalized.split(" ").slice(0, 3).join(" "), mode: "insensitive" } },
+            where: {
+              title: { contains: normalized.split(" ").slice(0, 3).join(" "), mode: "insensitive" },
+            },
           });
           if (similar) continue;
         }
@@ -180,6 +206,11 @@ export async function runBot() {
           },
         });
         added += 1;
+
+        // הרחבה עצמית — רק ממקורות חיפוש, כדי לא ליצור לולאה על מקור ערוץ שכבר קיים
+        if (source.type === "youtube_search") {
+          await autoAddChannelSource(video.channelId, video.channelTitle, categoryId);
+        }
       }
 
       await db.botSource.update({ where: { id: source.id }, data: { lastRunAt: new Date() } });
