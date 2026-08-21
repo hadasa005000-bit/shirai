@@ -6,7 +6,7 @@ import slugify from "slugify";
 
 async function resolveArtistId(artistId?: string | null, artistName?: string | null) {
   if (artistId) return artistId;
-  if (!artistName || !artistName.trim()) return null;
+  if (!artistName || !artistName.trim()) return undefined;
   const name = artistName.trim();
   const existing = await db.artist.findUnique({ where: { name } });
   if (existing) return existing.id;
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   const song = await db.song.create({
     data: {
       title: body.title,
-      artistId,
+      artistId: artistId ?? null,
       categoryId: body.categoryId || null,
       youtubeId: body.youtubeId || null,
       driveLink: body.driveLink || null,
@@ -56,11 +56,18 @@ export async function PATCH(req: NextRequest) {
   if (!(await requireAdmin())) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const body = await req.json();
   if (!body.id) return NextResponse.json({ error: "missing id" }, { status: 400 });
+
+  // תמיכה בעדכון זמר לפי שם (יוצר אם לא קיים) — משמש את מסך "ארגון" בדשבורד
+  const artistId =
+    body.artistName !== undefined
+      ? await resolveArtistId(undefined, body.artistName)
+      : body.artistId;
+
   const song = await db.song.update({
     where: { id: body.id },
     data: {
       title: body.title,
-      artistId: body.artistId,
+      artistId,
       categoryId: body.categoryId,
       youtubeId: body.youtubeId,
       driveLink: body.driveLink,

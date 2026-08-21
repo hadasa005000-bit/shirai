@@ -60,27 +60,133 @@ function InlinePlayer({ youtubeId }: { youtubeId: string }) {
   );
 }
 
+function OrganizeEditor({
+  song,
+  categories,
+  artists,
+  onSaved,
+  onClose,
+}: {
+  song: any;
+  categories: any[];
+  artists: any[];
+  onSaved: (updated: any) => void;
+  onClose: () => void;
+}) {
+  const [artistName, setArtistName] = useState(song.artist?.name ?? "");
+  const [categoryId, setCategoryId] = useState(song.category?.id ?? "");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    const res = await fetch("/api/admin/songs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: song.id,
+        artistName: artistName.trim(),
+        categoryId: categoryId || null,
+      }),
+    });
+    const data = await res.json();
+    setSaving(false);
+    if (data.song) onSaved(data.song);
+    onClose();
+  }
+
+  return (
+    <div className="mt-3 bg-parchment/80 border border-gold/40 rounded-lg p-3 flex flex-wrap items-end gap-3">
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-text/60">זמר / מקהלה</label>
+        <input
+          list={`artists-datalist-${song.id}`}
+          value={artistName}
+          onChange={(e) => setArtistName(e.target.value)}
+          placeholder="הקלידו שם — קיים או חדש"
+          className="border border-ink/20 rounded-lg px-3 py-1.5 bg-white/80 focus:border-gold outline-none min-w-[180px]"
+        />
+        <datalist id={`artists-datalist-${song.id}`}>
+          {artists.map((a) => (
+            <option key={a.id} value={a.name} />
+          ))}
+        </datalist>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label className="text-xs text-text/60">קטגוריה</label>
+        <select
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+          className="border border-ink/20 rounded-lg px-3 py-1.5 bg-white/80 focus:border-gold outline-none min-w-[160px]"
+        >
+          <option value="">ללא קטגוריה</option>
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        onClick={save}
+        disabled={saving}
+        className="bg-ink text-parchment font-bold px-4 py-1.5 rounded-lg text-sm disabled:opacity-50"
+      >
+        {saving ? "שומר..." : "שמירה"}
+      </button>
+      <button onClick={onClose} className="text-text/60 text-sm hover:underline">
+        ביטול
+      </button>
+    </div>
+  );
+}
+
 export default function AdminSongs() {
   const [songs, setSongs] = useState<any[]>([]);
+  const [categoriesFull, setCategoriesFull] = useState<any[]>([]);
+  const [artists, setArtists] = useState<any[]>([]);
   const [filter, setFilter] = useState<string>("PENDING");
   const [sort, setSort] = useState<string>("newest");
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [organizingId, setOrganizingId] = useState<string | null>(null);
 
   async function load() {
-    const res = await fetch(`/api/admin/songs${filter ? `?status=${filter}` : ""}`);
-    const data = await res.json();
-    setSongs(data.songs ?? []);
+    const [songsRes, catRes, artistsRes] = await Promise.all([
+      fetch(`/api/admin/songs${filter ? `?status=${filter}` : ""}`).then((r) => r.json()),
+      fetch("/api/admin/categories").then((r) => r.json()),
+      fetch("/api/admin/artists").then((r) => r.json()),
+    ]);
+    setSongs(songsRes.songs ?? []);
+    setCategoriesFull(catRes.categories ?? []);
+    setArtists(artistsRes.artists ?? []);
   }
 
   useEffect(() => {
     load();
     setExpandedId(null);
+    setOrganizingId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
 
   function toggleExpand(id: string) {
     setExpandedId((prev) => (prev === id ? null : id));
+  }
+
+  function applyUpdatedSong(updated: any) {
+    setSongs((prev) =>
+      prev.map((s) =>
+        s.id === updated.id
+          ? {
+              ...s,
+              artist: artists.find((a) => a.id === updated.artistId) ?? s.artist,
+              category: categoriesFull.find((c) => c.id === updated.categoryId) ?? null,
+            }
+          : s
+      )
+    );
+    load(); // רענון מלא כדי לוודא שהכל מסונכרן (למשל זמר חדש שנוצר)
   }
 
   async function setStatus(id: string, status: string) {
@@ -99,7 +205,6 @@ export default function AdminSongs() {
     await fetch(`/api/admin/songs?id=${id}`, { method: "DELETE" });
   }
 
-  // רשימת הקטגוריות הקיימות בפועל בתוך הרשימה הנוכחית, כדי שתוכלו לסנן
   const categoryOptions = useMemo(() => {
     const set = new Map<string, string>();
     for (const s of songs) {
@@ -125,6 +230,17 @@ export default function AdminSongs() {
   }, [songs, sort, categoryFilter]);
 
   const isReviewMode = filter === "PENDING";
+
+  function renderOrganizeToggle(song: any) {
+    return (
+      <button
+        onClick={() => setOrganizingId((prev) => (prev === song.id ? null : song.id))}
+        className="text-xs text-ink/70 hover:text-wine border border-ink/20 rounded-full px-2 py-0.5"
+      >
+        🗂 ארגון
+      </button>
+    );
+  }
 
   return (
     <div>
@@ -205,14 +321,17 @@ export default function AdminSongs() {
                       {song.artist?.name ?? "—"} · {song.category?.name ?? "ללא קטגוריה"} ·{" "}
                       {new Date(song.createdAt).toLocaleDateString("he-IL")}
                     </p>
-                    {song.youtubeId && (
-                      <button
-                        onClick={() => toggleExpand(song.id)}
-                        className="text-xs text-wine hover:underline"
-                      >
-                        {expandedId === song.id ? "סגירת הנגן" : "▶ צפייה כאן לפני אישור"}
-                      </button>
-                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      {song.youtubeId && (
+                        <button
+                          onClick={() => toggleExpand(song.id)}
+                          className="text-xs text-wine hover:underline"
+                        >
+                          {expandedId === song.id ? "סגירת הנגן" : "▶ צפייה כאן"}
+                        </button>
+                      )}
+                      {renderOrganizeToggle(song)}
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0">
@@ -233,6 +352,15 @@ export default function AdminSongs() {
                 </div>
               </div>
               {expandedId === song.id && song.youtubeId && <InlinePlayer youtubeId={song.youtubeId} />}
+              {organizingId === song.id && (
+                <OrganizeEditor
+                  song={song}
+                  categories={categoriesFull}
+                  artists={artists}
+                  onSaved={applyUpdatedSong}
+                  onClose={() => setOrganizingId(null)}
+                />
+              )}
             </div>
           ))}
           {visibleSongs.length === 0 && (
@@ -261,6 +389,7 @@ export default function AdminSongs() {
                       {STATUS_LABELS[song.status]} · מקור: {song.source === "bot" ? "בוט" : "ידני"} ·{" "}
                       {new Date(song.createdAt).toLocaleDateString("he-IL")}
                     </p>
+                    <div className="mt-1">{renderOrganizeToggle(song)}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 text-sm shrink-0">
@@ -286,6 +415,15 @@ export default function AdminSongs() {
                 </div>
               </div>
               {expandedId === song.id && song.youtubeId && <InlinePlayer youtubeId={song.youtubeId} />}
+              {organizingId === song.id && (
+                <OrganizeEditor
+                  song={song}
+                  categories={categoriesFull}
+                  artists={artists}
+                  onSaved={applyUpdatedSong}
+                  onClose={() => setOrganizingId(null)}
+                />
+              )}
             </div>
           ))}
           {visibleSongs.length === 0 && <p className="px-4 py-6 text-text/50">אין שירים להצגה.</p>}
