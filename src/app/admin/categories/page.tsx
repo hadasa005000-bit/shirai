@@ -7,6 +7,8 @@ export default function AdminCategories() {
   const [categories, setCategories] = useState<any[]>([]);
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [name, setName] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState<any>(null);
 
   async function load() {
     const [catRes, sugRes] = await Promise.all([
@@ -36,6 +38,16 @@ export default function AdminCategories() {
   async function remove(id: string) {
     if (!confirm("למחוק קטגוריה זו?")) return;
     await fetch(`/api/admin/categories?id=${id}`, { method: "DELETE" });
+    load();
+  }
+
+  async function scanExisting() {
+    setScanning(true);
+    setScanResult(null);
+    const res = await fetch("/api/admin/category-suggestions/scan", { method: "POST" });
+    const data = await res.json();
+    setScanResult(data);
+    setScanning(false);
     load();
   }
 
@@ -108,6 +120,21 @@ export default function AdminCategories() {
             אותם כאן במקום ליצור לבד. אישור יוצר את הקטגוריה ומשייך אליה גם
             שירים קיימים שכבר מתאימים לה.
           </p>
+
+          <button
+            onClick={scanExisting}
+            disabled={scanning}
+            className="bg-ink text-parchment font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50 mb-4"
+          >
+            {scanning ? "סורק..." : "🔍 סרוק שירים קיימים ללא קטגוריה"}
+          </button>
+
+          {scanResult && (
+            <div className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-4 text-sm">
+              נסרקו {scanResult.scanned} שירים, נוצרו {scanResult.suggested} הצעות חדשות.
+            </div>
+          )}
+
           <div className="grid gap-3">
             {suggestions.map((s) => (
               <div
