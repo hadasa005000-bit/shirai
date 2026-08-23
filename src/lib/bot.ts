@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import slugify from "slugify";
-import { classifySlug, normalizeTitle } from "@/lib/classify";
+import { classifySlug, normalizeTitle, suggestNewCategory } from "@/lib/classify";
 
 const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
 
@@ -186,11 +186,37 @@ async function autoAddArtistSearchSource(artistName: string) {
 }
 
 async function resolveCategoryId(text: string, fallbackId: string | null) {
+  // 1. קטגוריות קבועות מוכרות (כמו קודם)
   const slug = classifySlug(text);
   if (slug) {
     const category = await db.category.findUnique({ where: { slug } });
     if (category) return category.id;
   }
+
+  // 2. הצעות קטגוריה שכבר אושרו ע"י מנהל — משתמשים בהן ישירות
+  const approved = await db.categorySuggestion.findMany({ where: { status: "APPROVED" } });
+  const hay = text.toLowerCase();
+  for (const s of approved) {
+    if (s.categoryId && hay.includes(s.keyword.toLowerCase())) return s.categoryId;
+  }
+
+  // 3. נושא חדש שעדיין אין לו קטגוריה — מציעים למנהל, לא יוצרים לבד
+  const candidate = suggestNewCategory(text);
+  if (candidate) {
+    const existing = await db.categorySuggestion.findUnique({ where: { name: candidate.name } });
+    if (!existing) {
+      await db.categorySuggestion.create({
+        data: { name: candidate.name, keyword: candidate.keyword, matchCount: 1 },
+      });
+    } else if (existing.status === "PENDING") {
+      await db.categorySuggestion.update({
+        where: { id: existing.id },
+        data: { matchCount: { increment: 1 } },
+      });
+    }
+    // REJECTED — לא מוצע שוב, לא נוגעים בו
+  }
+
   return fallbackId;
 }
 
