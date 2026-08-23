@@ -114,3 +114,26 @@ model CategorySuggestion {
   categoryId String?
   createdAt  DateTime @default(now())
 }
+// כל הרצה של הסקריפט המקומי (שרץ אצלכם, על המחשב עם נטפרי)
+model ScriptRun {
+  id         String    @id @default(cuid())
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  checked    Int       @default(0)
+  approved   Int       @default(0)
+  skipped    Int       @default(0)
+  dryRun     Boolean   @default(false)
+}
+
+// יומן ביקורת: כל החלטה בודדת שהסקריפט קיבל, לצפייה ולביטול
+model ScriptDecision {
+  id         String   @id @default(cuid())
+  runId      String
+  songId     String
+  title      String
+  youtubeId  String?
+  verdict    String   // "allowed" | "blocked_or_error"
+  action     String   // "approved" | "left_pending" | "dry_run"
+  reverted   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+}
