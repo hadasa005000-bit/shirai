@@ -30,7 +30,7 @@ model User {
 
 model Category {
   id    String @id @default(cuid())
-  name  String @unique   // לדוגמה: התעוררות, שמחה, חתונה, ניגוני שבת
+  name  String @unique
   slug  String @unique
   songs Song[]
 }
@@ -49,15 +49,15 @@ model Song {
   artist        Artist?    @relation(fields: [artistId], references: [id])
   categoryId    String?
   category      Category?  @relation(fields: [categoryId], references: [id])
-  youtubeId     String?    // מזהה סרטון יוטיוב לצפייה בקליפ
-  driveLink     String?    // קישור הורדה (דרייב אם נמצא, אחרת קישור הורדה אוטומטי)
-  description   String?    // תקציר/תיאור מהמקור
+  youtubeId     String?
+  driveLink     String?
+  description   String?
   downloads     Int        @default(0)
   publishedAt   DateTime?
   lyrics        String?
   status        SongStatus @default(PENDING)
-  source        String     @default("manual") // manual | bot
-  sourceUrl     String?    // מהיכן הבוט מצא את זה
+  source        String     @default("manual")
+  sourceUrl     String?
   views         Int        @default(0)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
@@ -80,12 +80,11 @@ model Favorite {
   @@unique([userId, songId])
 }
 
-// ערוצים/מקורות שהבוט סורק כדי למצוא שירים חדשים
 model BotSource {
   id             String   @id @default(cuid())
-  label          String   // שם ידידותי, לדוגמה "ערוץ יוטיוב - ישי לפידות"
-  type           String   // youtube_channel | youtube_search
-  value          String   // channel ID או מילת חיפוש
+  label          String
+  type           String
+  value          String
   defaultCategoryId String?
   active         Boolean  @default(true)
   lastRunAt      DateTime?
@@ -104,4 +103,14 @@ model BotRunLog {
 model AppSettings {
   id             String  @id @default("singleton")
   botAutoPublish Boolean @default(false)
+}
+
+model CategorySuggestion {
+  id         String   @id @default(cuid())
+  name       String   @unique
+  keyword    String
+  matchCount Int      @default(1)
+  status     String   @default("PENDING")
+  categoryId String?
+  createdAt  DateTime @default(now())
 }
