@@ -16,7 +16,9 @@ export async function GET(req: NextRequest) {
       youtubeId: { not: null },
       id: { notIn: checkedIds },
     },
-    select: { id: true, title: true, youtubeId: true },
+    // רק מזהים טכניים — בלי כותרות/טקסט חופשי, כדי שנטפרי לא תסרוק
+    // ותחסום את התשובה עצמה בגלל תוכן לא-מסונן בכותרת שיר כלשהי
+    select: { id: true, youtubeId: true },
     take: limit,
     orderBy: { createdAt: "asc" },
   });
