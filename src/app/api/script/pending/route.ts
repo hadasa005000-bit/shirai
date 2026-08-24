@@ -6,8 +6,12 @@ export async function GET(req: NextRequest) {
   if (!checkScriptAuth(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 50, 200);
 
-  // כבר נבדקו בעבר (בכל הרצה, גם ישנה) — לא בודקים אותם שוב
-  const alreadyChecked = await db.scriptDecision.findMany({ select: { songId: true } });
+  // "כבר נבדק" נחשב רק אם הייתה על השיר הזה החלטה אמיתית (לא בדיקת --dry-run) —
+  // כך שבדיקת ניסיון לא "תופסת מקום" של בדיקה אמיתית לאותם שירים.
+  const alreadyChecked = await db.scriptDecision.findMany({
+    where: { action: { not: "dry_run" } },
+    select: { songId: true },
+  });
   const checkedIds = alreadyChecked.map((d) => d.songId);
 
   const songs = await db.song.findMany({
