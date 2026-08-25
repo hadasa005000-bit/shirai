@@ -16,12 +16,24 @@ export async function POST(req: NextRequest) {
   const song = await db.song.findUnique({ where: { id: songId }, select: { title: true, youtubeId: true } });
 
   // *** ליבת ההגנה — לא הסקריפט קובע, השרת קובע ***
-  // רק "allowed" בדיוק, ולא dryRun, מוביל לאישור בפועל. כל דבר אחר —
-  // כולל שגיאה, timeout, תשובה לא ברורה, או ערך לא צפוי — נשאר בהמתנה.
+  // רק "allowed" בדיוק, ולא dryRun, מוביל לאישור בפועל.
   const shouldApprove = verdict === "allowed" && !dryRun;
 
   if (shouldApprove) {
-    await db.song.update({ where: { id: songId }, data: { status: "PUBLISHED" } });
+    await db.song.update({
+      where: { id: songId },
+      data: { status: "PUBLISHED", scriptHidden: false },
+    });
+  } else if (!dryRun) {
+    // לא פתוח (או שגיאה) — יוצא מרשימת "ממתין לאישור" אל "מוסתר", כדי
+    // שההמתנה תישאר קטנה ותציג רק דברים שבאמת עוד לא נבדקו. לא נמחק —
+    // אפשר עדיין למצוא ולפרסם ידנית תחת הסינון "מוסתר". מסומן scriptHidden
+    // כדי שריצות עתידיות של הסקריפט עדיין יבדקו אותו שוב (בניגוד להסתרה
+    // ידנית ע"י מנהל, שהסקריפט לא נוגע בה).
+    await db.song.update({
+      where: { id: songId },
+      data: { status: "HIDDEN", scriptHidden: true },
+    });
   }
 
   await db.scriptDecision.create({

@@ -21,8 +21,10 @@ export async function GET(req: NextRequest) {
 
   const songs = await db.song.findMany({
     where: {
-      status: "PENDING",
       youtubeId: { not: null },
+      // "ממתין" רגיל, או "מוסתר ע"י הסקריפט" (לא ע"י מנהל ידנית) —
+      // כדי לתת לו הזדמנות נוספת בכל ריצה חדשה
+      OR: [{ status: "PENDING" }, { status: "HIDDEN", scriptHidden: true }],
       ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
     },
     select: { id: true, youtubeId: true },
