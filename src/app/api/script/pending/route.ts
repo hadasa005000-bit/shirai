@@ -5,23 +5,26 @@ import { checkScriptAuth } from "@/lib/script-auth";
 export async function GET(req: NextRequest) {
   if (!checkScriptAuth(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const limit = Math.min(Number(req.nextUrl.searchParams.get("limit")) || 50, 200);
+  const runId = req.nextUrl.searchParams.get("runId");
 
-  // "כבר נבדק" נחשב רק אם הייתה על השיר הזה החלטה אמיתית (לא בדיקת --dry-run) —
-  // כך שבדיקת ניסיון לא "תופסת מקום" של בדיקה אמיתית לאותם שירים.
-  const alreadyChecked = await db.scriptDecision.findMany({
-    where: { action: { not: "dry_run" } },
-    select: { songId: true },
-  });
-  const checkedIds = alreadyChecked.map((d) => d.songId);
+  // מחריגים רק שירים שכבר נבדקו בתוך *הריצה הנוכחית* (כדי לא ליפול
+  // בלולאה אינסופית על אותו שיר בתוך ריצה אחת). ריצה חדשה (מחר, למשל)
+  // מתחילה מאפס ובודקת הכל שוב — שום שיר לא נפסל לצמיתות מעצם ריצה קודמת.
+  let excludeIds: string[] = [];
+  if (runId) {
+    const decidedThisRun = await db.scriptDecision.findMany({
+      where: { runId },
+      select: { songId: true },
+    });
+    excludeIds = decidedThisRun.map((d) => d.songId);
+  }
 
   const songs = await db.song.findMany({
     where: {
       status: "PENDING",
       youtubeId: { not: null },
-      id: { notIn: checkedIds },
+      ...(excludeIds.length > 0 ? { id: { notIn: excludeIds } } : {}),
     },
-    // רק מזהים טכניים — בלי כותרות/טקסט חופשי, כדי שנטפרי לא תסרוק
-    // ותחסום את התשובה עצמה בגלל תוכן לא-מסונן בכותרת שיר כלשהי
     select: { id: true, youtubeId: true },
     take: limit,
     orderBy: { createdAt: "asc" },
