@@ -8,8 +8,10 @@ export default function AdminBotPage() {
   const [categories, setCategories] = useState<any[]>([]);
   const [running, setRunning] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [backfilling, setBackfilling] = useState(false);
   const [runResult, setRunResult] = useState<any>(null);
   const [seedResult, setSeedResult] = useState<any>(null);
+  const [backfillResult, setBackfillResult] = useState<any>(null);
   const [autoPublish, setAutoPublish] = useState<boolean>(false);
   const [savingToggle, setSavingToggle] = useState(false);
   const [form, setForm] = useState({
@@ -84,6 +86,16 @@ export default function AdminBotPage() {
     load();
   }
 
+  async function backfillFromApproved() {
+    setBackfilling(true);
+    setBackfillResult(null);
+    const res = await fetch("/api/admin/bot-sources/backfill", { method: "POST" });
+    const data = await res.json();
+    setBackfillResult(data);
+    setBackfilling(false);
+    load();
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -95,6 +107,13 @@ export default function AdminBotPage() {
             className="bg-ink text-parchment font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50"
           >
             {seeding ? "מוסיף..." : "➕ הוסיפו מקורות חיפוש מובנים"}
+          </button>
+          <button
+            onClick={backfillFromApproved}
+            disabled={backfilling}
+            className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+          >
+            {backfilling ? "סורק..." : "🌱 צור מקורות משירים שכבר אושרו"}
           </button>
           <button
             onClick={runNow}
@@ -144,6 +163,14 @@ export default function AdminBotPage() {
         אחרי ערוץ ידנית. אפשר ללחוץ עליו רק פעם אחת; מקורות שכבר קיימים לא
         ייווצרו שוב.
       </p>
+      <p className="text-sm text-text/60 mb-3 max-w-2xl">
+        הכפתור <b>&quot;צור מקורות משירים שכבר אושרו&quot;</b> עושה משהו אחר: הוא
+        סורק את כל השירים שכבר מפורסמים אצלכם, ומחפש אמנים שיש להם כבר
+        כמה שירים מאושרים (מכנה משותף חוזר) בלי שיש להם מקור קבוע — ויוצר
+        להם אחד. כדאי ללחוץ עליו עכשיו פעם אחת כדי "לתפוס" גם שירים
+        שאושרו לפני שהמנגנון הזה נוסף. מאותה נקודה, כל אישור חדש (בין אם
+        ידני או דרך הסקריפט המקומי) גם בודק את זה אוטומטית בעצמו.
+      </p>
       <p className="text-sm text-text/60 mb-6 max-w-2xl">
         נדרש <b>YOUTUBE_API_KEY</b> במשתני הסביבה כדי לסרוק. הבוט לא מארח
         קבצי שמע — הוא מקשר לקליפ ולקישור ההורדה.
@@ -152,6 +179,13 @@ export default function AdminBotPage() {
       {seedResult && (
         <div className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-4 text-sm">
           נוספו {seedResult.created ?? 0} מקורות חיפוש חדשים.
+        </div>
+      )}
+
+      {backfillResult && (
+        <div className="bg-white/60 border border-ink/10 rounded-xl p-4 mb-4 text-sm">
+          נבדקו {backfillResult.artistsScanned ?? 0} אמנים, {backfillResult.artistsAtThreshold ?? 0}{" "}
+          מהם עם מספיק שירים מאושרים, ונוצרו {backfillResult.sourcesCreated ?? 0} מקורות חדשים.
         </div>
       )}
 

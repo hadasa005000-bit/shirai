@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import slugify from "slugify";
+import { learnFromPublishedSong } from "@/lib/bot";
 
 async function resolveArtistId(artistId?: string | null, artistName?: string | null) {
   if (artistId) return artistId;
@@ -49,6 +50,11 @@ export async function POST(req: NextRequest) {
       source: "manual",
     },
   });
+  // שיר שהוזן ידנית ופורסם ישר - גם ממנו לומדים, בדיוק כמו משיר שאושר
+  // דרך הבוט/הסקריפט, כדי שהבוט יתחיל לעקוב אחרי הערוץ/האמן הזה לבד.
+  if (song.status === "PUBLISHED") {
+    await learnFromPublishedSong(song.id);
+  }
   return NextResponse.json({ song });
 }
 
@@ -75,6 +81,11 @@ export async function PATCH(req: NextRequest) {
       status: body.status,
     },
   });
+  // אישור ידני של שיר שהיה ממתין → אותה למידה: מוסיפים מקור קבוע
+  // לערוץ/לאמן שלו, כדי שהבוט ימשיך למצוא תוכן דומה לבד בעתיד.
+  if (body.status === "PUBLISHED") {
+    await learnFromPublishedSong(song.id);
+  }
   return NextResponse.json({ song });
 }
 

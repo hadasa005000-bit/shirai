@@ -40,6 +40,10 @@ model Artist {
   name  String @unique
   slug  String @unique
   songs Song[]
+
+  // שירים ששמו של האמן הזה זוהה בכותרת שלהם, בנוסף לאמן הראשי
+  // (למשל מחרוזת/דואט שמופיע בכמה ערוצים ומזכיר כמה זמרים בכותרת)
+  extraSongs Song[] @relation("SongExtraArtists")
 }
 
 model Song {
@@ -63,6 +67,10 @@ model Song {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   favorites     Favorite[]
+
+  // אמנים נוספים שזוהו בכותרת השיר (למשל שני זמרים באותו קליפ) —
+  // בנוסף לאמן הראשי (artist), כדי שהשיר יופיע בדף של כולם ולא "יתפספס"
+  extraArtists  Artist[]   @relation("SongExtraArtists")
 
   @@index([status])
   @@index([views])
