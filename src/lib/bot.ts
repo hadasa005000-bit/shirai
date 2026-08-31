@@ -1,6 +1,6 @@
 import { db } from "@/lib/db";
 import slugify from "slugify";
-import { classifySlug, normalizeTitle, suggestNewCategory } from "@/lib/classify";
+import { classifySlug, normalizeTitle, suggestNewCategory, detectArtistMentions } from "@/lib/classify";
 
 const YT_API_BASE = "https://www.googleapis.com/youtube/v3";
 
@@ -45,6 +45,19 @@ async function ytFetch(url: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`YouTube API error (${res.status}): ${await res.text()}`);
   return res.json();
+}
+
+/** פרטי הערוץ של סרטון בודד לפי מזהה — עולה יחידת מכסה אחת בלבד. */
+async function fetchVideoChannelInfo(
+  videoId: string,
+  apiKey: string
+): Promise<{ channelId: string; channelTitle: string } | null> {
+  const data = await ytFetch(
+    `${YT_API_BASE}/videos?key=${apiKey}&id=${videoId}&part=snippet`
+  );
+  const snippet = data.items?.[0]?.snippet;
+  if (!snippet?.channelId) return null;
+  return { channelId: snippet.channelId, channelTitle: snippet.channelTitle ?? "" };
 }
 
 /**
@@ -281,6 +294,10 @@ export async function runBot() {
   const autoPublish = await getAutoPublish();
   const sources = await db.botSource.findMany({ where: { active: true } });
 
+  // כל האמנים הידועים כרגע באתר — משמש לזיהוי כמה זמרים באותה כותרת
+  // (מחרוזת/דואט). הרשימה גדלה לבד עם הזמן, ככל שהבוט מוסיף אמנים חדשים.
+  const knownArtists = await db.artist.findMany({ select: { id: true, name: true } });
+
   for (const source of sources) {
     try {
       const videos = await fetchVideos(source, apiKey);
@@ -311,6 +328,15 @@ export async function runBot() {
           extractDownloadLink(video.description) ||
           DOWNLOAD_TEMPLATE.replace("{id}", video.videoId);
 
+        // זיהוי אמנים נוספים שמוזכרים בכותרת עצמה (למשל "חיים ישראל
+        // ויעקב שוואקי - מחרוזת"). כל אמן מוכר שזוהה, מלבד האמן הראשי
+        // (שנקבע לפי הערוץ), משויך לשיר בנוסף — כך שהשיר לא "יתפספס"
+        // ויופיע גם תחת שני האמנים אם שניהם מוזכרים.
+        const mentioned = detectArtistMentions(video.title, knownArtists);
+        const extraArtistIds = Array.from(
+          new Set(mentioned.map((a) => a.id).filter((id) => id !== artistId))
+        );
+
         await db.song.create({
           data: {
             title: video.title,
@@ -323,6 +349,9 @@ export async function runBot() {
             publishedAt: autoPublish ? new Date(video.publishedAt) : null,
             source: "bot",
             sourceUrl: `https://youtube.com/watch?v=${video.videoId}`,
+            ...(extraArtistIds.length > 0
+              ? { extraArtists: { connect: extraArtistIds.map((id) => ({ id })) } }
+              : {}),
           },
         });
         added += 1;
@@ -350,4 +379,115 @@ export async function runBot() {
   });
 
   return { found, added, errors };
+}
+
+/**
+ * כמה שירים מאושרים (PUBLISHED) של אותו אמן צריך לראות לפני שיוצרים לו
+ * מקור קבוע. לא על השיר הראשון — רק כשרואים "מכנה משותף" חוזר, כלומר
+ * כמה שירים שונים של אותו אמן שכבר אושרו בפועל. אפשר לשנות את המספר הזה.
+ */
+const MIN_APPROVED_SONGS_FOR_AUTO_SOURCE = 3;
+
+/**
+ * "למידה" מכל שיר שאושר בפועל — בין אם אושר ע"י הסקריפט המקומי (נטפרי)
+ * או ע"י מנהל דרך /admin/songs. זו נקודת האמון האמיתית: לא מנחשים מראש
+ * מה טוב, אלא בודקים אם יש כבר כמה שירים מאושרים של אותו אמן (מכנה
+ * משותף) — ורק אז יוצרים לו מקור קבוע (ערוץ + חיפוש לפי שם). ככה האתר
+ * ממשיך "לגדול לבד" מתוך מה שכבר הוכח כמתאים כמה פעמים, לא מתוך אישור
+ * בודד אחד שיכול להיות חריג.
+ *
+ * לא זורקת שגיאה החוצה בכוונה — אישור השיר עצמו חייב להצליח גם אם
+ * הלמידה נכשלת (למשל אם YOUTUBE_API_KEY חסר או המכסה נגמרה להיום).
+ */
+export async function learnFromPublishedSong(songId: string) {
+  try {
+    const song = await db.song.findUnique({
+      where: { id: songId },
+      include: { artist: true },
+    });
+    if (!song || !song.artistId || !song.artist) return;
+    if (song.artist.name === "לא ידוע") return;
+
+    await maybeCreateSourcesForArtist(song.artist.id, song.artist.name, song.categoryId ?? null);
+  } catch (err) {
+    // שקט בכוונה — ראו הערה למעלה. אפשר לראות כשלים אלה רק דרך לוגים
+    // כלליים של השרת, לא דרך תגובת ה-API שמאשרת את השיר.
+    console.error("learnFromPublishedSong failed:", err);
+  }
+}
+
+/**
+ * בודק כמה שירים מאושרים יש כבר לאמן הזה, ואם הגיע לסף — יוצר לו מקור
+ * חיפוש קבוע, ומנסה גם למצוא ולהוסיף את הערוץ שממנו עלה אחד השירים שלו
+ * (כדי לסרוק את כל הערוץ, לא רק לחפש לפי שם). לא יוצר כפול אם כבר קיים.
+ */
+async function maybeCreateSourcesForArtist(
+  artistId: string,
+  artistName: string,
+  fallbackCategoryId: string | null
+) {
+  const approvedCount = await db.song.count({
+    where: { artistId, status: "PUBLISHED" },
+  });
+  if (approvedCount < MIN_APPROVED_SONGS_FOR_AUTO_SOURCE) return;
+
+  const searchQuery = `${artistName} שיר חדש`;
+  const alreadyHasSearchSource = await db.botSource.findFirst({
+    where: { type: "youtube_search", value: searchQuery },
+  });
+  // אם כבר קיים מקור חיפוש לאמן הזה, כנראה שכבר טיפלנו בו בעבר (כולל
+  // ניסיון למצוא ערוץ) — לא צריך לבזבז עוד קריאת API על אותו דבר שוב
+  // בכל אישור נוסף.
+  if (alreadyHasSearchSource) return;
+
+  // זו הפעם הראשונה שהאמן הזה חוצה את הסף — יוצרים לו מקור חיפוש קבוע
+  await autoAddArtistSearchSource(artistName);
+
+  // ומנסים גם למצוא את הערוץ שממנו עלה אחד השירים המאושרים שלו, כדי
+  // לסרוק את כל מה שהוא מעלה — לא רק לחפש לפי שם. עולה קריאת API אחת.
+  const apiKey = process.env.YOUTUBE_API_KEY;
+  if (!apiKey) return;
+
+  const sampleSong = await db.song.findFirst({
+    where: { artistId, status: "PUBLISHED", youtubeId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: { youtubeId: true },
+  });
+  if (!sampleSong?.youtubeId) return;
+
+  const info = await fetchVideoChannelInfo(sampleSong.youtubeId, apiKey);
+  if (info) {
+    await autoAddChannelSource(info.channelId, info.channelTitle, fallbackCategoryId);
+  }
+}
+
+/**
+ * סריקה חד-פעמית (או חוזרת, ידנית) של כל השירים המאושרים הקיימים באתר —
+ * לתפוס אמנים שכבר יש להם כמה שירים מאושרים מלפני שהמנגנון הזה הופעל,
+ * ושמעולם לא קיבלו מקור קבוע. מריצים מהדשבורד (/admin/bot) בכפתור.
+ */
+export async function backfillSourcesFromApprovedSongs() {
+  const groups = await db.song.groupBy({
+    by: ["artistId"],
+    where: { status: "PUBLISHED", artistId: { not: null } },
+    _count: { _all: true },
+  });
+
+  const sourcesBefore = await db.botSource.count();
+  let artistsAtThreshold = 0;
+
+  for (const group of groups) {
+    if (!group.artistId || group._count._all < MIN_APPROVED_SONGS_FOR_AUTO_SOURCE) continue;
+    const artist = await db.artist.findUnique({ where: { id: group.artistId } });
+    if (!artist) continue;
+    artistsAtThreshold += 1;
+    await maybeCreateSourcesForArtist(artist.id, artist.name, null);
+  }
+
+  const sourcesAfter = await db.botSource.count();
+  return {
+    artistsScanned: groups.length,
+    artistsAtThreshold,
+    sourcesCreated: sourcesAfter - sourcesBefore,
+  };
 }
