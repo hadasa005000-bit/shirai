@@ -48,6 +48,38 @@ export function suggestNewCategory(text: string): { name: string; keyword: strin
   return null;
 }
 
+/** נירמול טקסט להשוואת שמות אמנים — מוריד גרשיים/מרכאות ומקטין רווחים כפולים. */
+function normalizeForArtistMatch(text: string): string {
+  return text
+    .replace(/["'׳״]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * מזהה אילו אמנים "מוכרים" (כאלה שכבר קיימים בטבלת Artist) מוזכרים
+ * בטקסט (בד"כ כותרת הסרטון). זה מה שתופס מחרוזות/דואטים כמו
+ * "חיים ישראל ויעקב שוואקי - מחרוזת" — שני השמות מזוהים יחד, ובהמשך
+ * (בבוט) השיר משויך לשניהם, כדי שהוא לא "יתפספס" ויישאר רק תחת אחד מהם.
+ *
+ * שמות קצרים מדי (פחות מ-3 תווים) לא נבדקים, כדי למנוע התאמות שווא
+ * (למשל שם אמן בן 2 אותיות שמופיע בטעות בתוך מילה אחרת).
+ */
+export function detectArtistMentions<T extends { id: string; name: string }>(
+  text: string,
+  artists: T[]
+): T[] {
+  const hay = normalizeForArtistMatch(text);
+  const found: T[] = [];
+  for (const artist of artists) {
+    const name = normalizeForArtistMatch(artist.name);
+    if (name.length < 3) continue;
+    if (hay.includes(name)) found.push(artist);
+  }
+  return found;
+}
+
 /** נירמול כותרת לזיהוי כפילויות (אותו שיר שהועלה בכמה ערוצים). */
 export function normalizeTitle(title: string): string {
   return title
