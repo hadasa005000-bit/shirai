@@ -107,6 +107,23 @@ model BotRunLog {
   found     Int      @default(0)
   added     Int      @default(0)
   errors    String?
+  entries   BotLogEntry[]
+}
+
+// שורת יומן בודדת — "כל מה שזז" בזמן סריקת הבוט: איזה מקור נבדק, כמה
+// סרטונים נמצאו, מה נוסף, מה דולג ולמה, אילו מקורות חדשים נוצרו, ושגיאות.
+// runId ריק (null) = אירוע ש"למד" מאישור שיר בודד (לא בתוך ריצת בוט
+// מתוזמנת) — למשל כשמנהל מאשר שיר ידנית והמערכת יוצרת מקור בעקבותיו.
+model BotLogEntry {
+  id        String     @id @default(cuid())
+  runId     String?
+  run       BotRunLog? @relation(fields: [runId], references: [id])
+  level     String     @default("info") // info | success | warn | error
+  message   String
+  createdAt DateTime   @default(now())
+
+  @@index([runId])
+  @@index([createdAt])
 }
 
 model AppSettings {
