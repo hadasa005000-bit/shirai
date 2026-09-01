@@ -2,7 +2,15 @@
 
 import { useEffect, useState } from "react";
 
+function levelStyle(level: string) {
+  if (level === "error") return "text-wine";
+  if (level === "success") return "text-emerald-700";
+  if (level === "warn") return "text-amber-700";
+  return "text-text/70";
+}
+
 export default function AdminBotPage() {
+  const [tab, setTab] = useState<"overview" | "logs">("overview");
   const [sources, setSources] = useState<any[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -21,6 +29,13 @@ export default function AdminBotPage() {
     defaultCategoryId: "",
   });
 
+  // לשונית הלוגים המפורטים
+  const [detailedRuns, setDetailedRuns] = useState<any[]>([]);
+  const [systemEvents, setSystemEvents] = useState<any[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [expandedRunId, setExpandedRunId] = useState<string | null>(null);
+  const [showSystemEvents, setShowSystemEvents] = useState(true);
+
   async function load() {
     const [srcRes, catRes, settingsRes] = await Promise.all([
       fetch("/api/admin/bot-sources").then((r) => r.json()),
@@ -33,9 +48,22 @@ export default function AdminBotPage() {
     setAutoPublish(!!settingsRes.botAutoPublish);
   }
 
+  async function loadDetailedLogs() {
+    setLoadingLogs(true);
+    const res = await fetch("/api/admin/bot-logs").then((r) => r.json());
+    setDetailedRuns(res.runs ?? []);
+    setSystemEvents(res.systemEvents ?? []);
+    if (res.runs?.[0]) setExpandedRunId((prev) => prev ?? res.runs[0].id);
+    setLoadingLogs(false);
+  }
+
   useEffect(() => {
     load();
   }, []);
+
+  useEffect(() => {
+    if (tab === "logs") loadDetailedLogs();
+  }, [tab]);
 
   async function toggleAutoPublish() {
     const next = !autoPublish;
@@ -74,6 +102,7 @@ export default function AdminBotPage() {
     setRunResult(data);
     setRunning(false);
     load();
+    if (tab === "logs") loadDetailedLogs();
   }
 
   async function seedDefaults() {
@@ -94,6 +123,7 @@ export default function AdminBotPage() {
     setBackfillResult(data);
     setBackfilling(false);
     load();
+    if (tab === "logs") loadDetailedLogs();
   }
 
   return (
@@ -125,6 +155,28 @@ export default function AdminBotPage() {
         </div>
       </div>
 
+      {/* לשוניות */}
+      <div className="flex gap-1 mb-6 border-b border-ink/10">
+        <button
+          onClick={() => setTab("overview")}
+          className={`px-4 py-2 text-sm font-bold border-b-2 -mb-px transition-colors ${
+            tab === "overview" ? "border-gold text-ink" : "border-transparent text-text/50 hover:text-text"
+          }`}
+        >
+          סקירה ומקורות
+        </button>
+        <button
+          onClick={() => setTab("logs")}
+          className={`px-4 py-2 text-sm font-bold border-b-2 -mb-px transition-colors ${
+            tab === "logs" ? "border-gold text-ink" : "border-transparent text-text/50 hover:text-text"
+          }`}
+        >
+          📋 לוגים מפורטים
+        </button>
+      </div>
+
+      {tab === "overview" && (
+      <>
       {/* המתג המרכזי: אוטומטי מול אישור ידני */}
       <div className="bg-white/70 border border-gold/40 rounded-xl p-4 mb-6 flex items-center justify-between gap-4 flex-wrap">
         <div>
@@ -268,6 +320,90 @@ export default function AdminBotPage() {
         ))}
         {logs.length === 0 && <p className="px-4 py-6 text-text/50">עדיין לא בוצעו הרצות.</p>}
       </div>
+      </>
+      )}
+
+      {tab === "logs" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <p className="text-sm text-text/60 max-w-2xl">
+              כל מה שהבוט עושה, שורה-שורה: אילו מקורות נסרקו, מה נמצא, מה
+              נוסף, מה דולג (וכפילות מאיזה סוג), אילו מקורות חדשים נוצרו
+              אוטומטית, ושגיאות. לחצו על ריצה כדי לפתוח/לסגור אותה.
+            </p>
+            <button
+              onClick={loadDetailedLogs}
+              disabled={loadingLogs}
+              className="bg-ink text-parchment font-bold px-4 py-2 rounded-lg text-sm disabled:opacity-50 shrink-0"
+            >
+              {loadingLogs ? "טוען..." : "🔄 רענון"}
+            </button>
+          </div>
+
+          {systemEvents.length > 0 && (
+            <div className="mb-6 bg-white/60 border border-ink/10 rounded-xl">
+              <button
+                onClick={() => setShowSystemEvents((v) => !v)}
+                className="w-full text-right px-4 py-3 font-bold flex items-center justify-between"
+              >
+                <span>🌱 אירועי למידה (מחוץ לריצה מתוזמנת) — {systemEvents.length}</span>
+                <span className="text-text/40">{showSystemEvents ? "▲" : "▼"}</span>
+              </button>
+              {showSystemEvents && (
+                <div className="divide-y divide-ink/10 max-h-72 overflow-y-auto">
+                  {systemEvents.map((e) => (
+                    <div key={e.id} className={`px-4 py-2 text-sm ${levelStyle(e.level)}`}>
+                      <span className="text-text/40 ml-2 text-xs">
+                        {new Date(e.createdAt).toLocaleString("he-IL")}
+                      </span>
+                      {e.message}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="bg-white/60 border border-ink/10 rounded-xl divide-y divide-ink/10">
+            {detailedRuns.map((run) => {
+              const isOpen = expandedRunId === run.id;
+              return (
+                <div key={run.id}>
+                  <button
+                    onClick={() => setExpandedRunId(isOpen ? null : run.id)}
+                    className="w-full text-right px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+                  >
+                    <span className="font-bold text-sm">
+                      {new Date(run.startedAt).toLocaleString("he-IL")} — נמצאו {run.found}, נוספו{" "}
+                      <span className="text-emerald-700">{run.added}</span>
+                      {run.errors ? <span className="text-wine"> — יש שגיאות</span> : ""}
+                    </span>
+                    <span className="text-text/40 text-xs">{isOpen ? "▲ סגירה" : "▼ פתיחה"}</span>
+                  </button>
+                  {isOpen && (
+                    <div className="bg-parchment/40 px-4 py-3 max-h-96 overflow-y-auto font-mono text-xs space-y-1">
+                      {run.entries?.map((e: any) => (
+                        <div key={e.id} className={levelStyle(e.level)}>
+                          <span className="text-text/30 ml-2">
+                            {new Date(e.createdAt).toLocaleTimeString("he-IL")}
+                          </span>
+                          {e.message}
+                        </div>
+                      ))}
+                      {(!run.entries || run.entries.length === 0) && (
+                        <p className="text-text/40">אין פירוט לריצה הזו (ריצה מלפני הוספת הלוגים המפורטים).</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {detailedRuns.length === 0 && !loadingLogs && (
+              <p className="px-4 py-6 text-text/50">עדיין אין ריצות עם לוג מפורט.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
