@@ -41,6 +41,26 @@ function mapItems(items: any[]): YouTubeVideo[] {
     }));
 }
 
+/**
+ * רישום שורת יומן אחת — גם למסד הנתונים (ללשונית "לוגים" בדשבורד) וגם
+ * ל-console.log הרגיל של Render, כדי שיהיה אפשר לראות גם משם. runId
+ * ריק (undefined) מתאר אירוע מחוץ לריצת בוט מתוזמנת (למשל למידה מאישור
+ * שיר בודד). לא זורקת שגיאה החוצה — רישום לוג לא אמור אף פעם לשבור את
+ * הפעולה עצמה.
+ */
+async function logEvent(
+  message: string,
+  level: "info" | "success" | "warn" | "error" = "info",
+  runId?: string
+) {
+  console.log(`[bot${runId ? ":" + runId.slice(-6) : ""}] ${message}`);
+  try {
+    await db.botLogEntry.create({ data: { runId: runId ?? null, level, message } });
+  } catch (err) {
+    console.error("logEvent failed to persist:", err);
+  }
+}
+
 async function ytFetch(url: string) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`YouTube API error (${res.status}): ${await res.text()}`);
@@ -284,6 +304,7 @@ export async function runBot() {
 
   if (!apiKey) {
     errors.push("YOUTUBE_API_KEY לא מוגדר בסביבה — אין אפשרות לסרוק.");
+    await logEvent("YOUTUBE_API_KEY לא מוגדר בסביבה — אין אפשרות לסרוק.", "error", log.id);
     await db.botRunLog.update({
       where: { id: log.id },
       data: { finishedAt: new Date(), found, added, errors: errors.join(" | ") },
@@ -294,20 +315,35 @@ export async function runBot() {
   const autoPublish = await getAutoPublish();
   const sources = await db.botSource.findMany({ where: { active: true } });
 
+  await logEvent(
+    `🚀 התחלת ריצה — ${sources.length} מקורות פעילים, פרסום אוטומטי: ${autoPublish ? "כן" : "לא (ממתין לאישור)"}`,
+    "info",
+    log.id
+  );
+
   // כל האמנים הידועים כרגע באתר — משמש לזיהוי כמה זמרים באותה כותרת
   // (מחרוזת/דואט). הרשימה גדלה לבד עם הזמן, ככל שהבוט מוסיף אמנים חדשים.
   const knownArtists = await db.artist.findMany({ select: { id: true, name: true } });
 
   for (const source of sources) {
     try {
+      await logEvent(`🔍 סורק מקור: ${source.label} (${source.type}: ${source.value})`, "info", log.id);
       const videos = await fetchVideos(source, apiKey);
       found += videos.length;
+      await logEvent(`   נמצאו ${videos.length} סרטונים במקור הזה`, "info", log.id);
+
+      let addedFromSource = 0;
+      let dupById = 0;
+      let dupByTitle = 0;
 
       for (const video of videos) {
         if (!video.videoId) continue;
 
         const byId = await db.song.findFirst({ where: { youtubeId: video.videoId } });
-        if (byId) continue;
+        if (byId) {
+          dupById += 1;
+          continue;
+        }
 
         const normalized = normalizeTitle(video.title);
         if (normalized.length > 4) {
@@ -316,7 +352,11 @@ export async function runBot() {
               title: { contains: normalized.split(" ").slice(0, 3).join(" "), mode: "insensitive" },
             },
           });
-          if (similar) continue;
+          if (similar) {
+            dupByTitle += 1;
+            await logEvent(`   ⏭️ דולג (כותרת דומה לקיים): "${video.title}"`, "info", log.id);
+            continue;
+          }
         }
 
         const { id: artistId, isNew: isNewArtist } = await resolveArtist(video.channelTitle);
@@ -355,23 +395,50 @@ export async function runBot() {
           },
         });
         added += 1;
+        addedFromSource += 1;
+        await logEvent(
+          `   ➕ נוסף: "${video.title}" — ערוץ: ${video.channelTitle}${
+            extraArtistIds.length > 0
+              ? ` (זוהו גם: ${mentioned.map((a) => a.name).join(", ")})`
+              : ""
+          }`,
+          "success",
+          log.id
+        );
 
         // הרחבה עצמית — רק ממקורות חיפוש מילות-מפתח מקוריים (לא ממצעד
         // הטרנדים ולא מערוצים שכבר נוספו), כדי לשמור על התאמה לקהל היעד
         // ולא להזרים אוטומטית מוזיקה כללית לתוך רשימת המקורות הקבועה.
         if (source.type === "youtube_search") {
+          const beforeCount = await db.botSource.count();
           await autoAddChannelSource(video.channelId, video.channelTitle, categoryId);
           if (isNewArtist) {
             await autoAddArtistSearchSource(video.channelTitle);
           }
+          const afterCount = await db.botSource.count();
+          if (afterCount > beforeCount) {
+            await logEvent(`   🌱 נוצר מקור חדש בעקבות "${video.channelTitle}"`, "success", log.id);
+          }
         }
       }
+
+      if (dupById > 0 || dupByTitle > 0) {
+        await logEvent(
+          `   (דולגו ${dupById + dupByTitle} כפילויות: ${dupById} לפי מזהה, ${dupByTitle} לפי כותרת דומה)`,
+          "info",
+          log.id
+        );
+      }
+      await logEvent(`✅ סיום מקור "${source.label}": נוספו ${addedFromSource} שירים חדשים`, "success", log.id);
 
       await db.botSource.update({ where: { id: source.id }, data: { lastRunAt: new Date() } });
     } catch (err: any) {
       errors.push(`${source.label}: ${err.message}`);
+      await logEvent(`❌ שגיאה במקור "${source.label}": ${err.message}`, "error", log.id);
     }
   }
+
+  await logEvent(`🏁 סיום ריצה: נמצאו ${found} סה"כ, נוספו ${added} שירים חדשים`, "info", log.id);
 
   await db.botRunLog.update({
     where: { id: log.id },
@@ -413,6 +480,7 @@ export async function learnFromPublishedSong(songId: string) {
     // שקט בכוונה — ראו הערה למעלה. אפשר לראות כשלים אלה רק דרך לוגים
     // כלליים של השרת, לא דרך תגובת ה-API שמאשרת את השיר.
     console.error("learnFromPublishedSong failed:", err);
+    await logEvent(`❌ שגיאה בלמידה משיר מאושר: ${(err as any)?.message ?? err}`, "error");
   }
 }
 
@@ -440,6 +508,11 @@ async function maybeCreateSourcesForArtist(
   // בכל אישור נוסף.
   if (alreadyHasSearchSource) return;
 
+  await logEvent(
+    `📈 "${artistName}" הגיע ל-${approvedCount} שירים מאושרים — יוצר מקור קבוע`,
+    "success"
+  );
+
   // זו הפעם הראשונה שהאמן הזה חוצה את הסף — יוצרים לו מקור חיפוש קבוע
   await autoAddArtistSearchSource(artistName);
 
@@ -458,6 +531,7 @@ async function maybeCreateSourcesForArtist(
   const info = await fetchVideoChannelInfo(sampleSong.youtubeId, apiKey);
   if (info) {
     await autoAddChannelSource(info.channelId, info.channelTitle, fallbackCategoryId);
+    await logEvent(`   🌱 נמצא ונוסף גם הערוץ: ${info.channelTitle}`, "success");
   }
 }
 
@@ -467,6 +541,7 @@ async function maybeCreateSourcesForArtist(
  * ושמעולם לא קיבלו מקור קבוע. מריצים מהדשבורד (/admin/bot) בכפתור.
  */
 export async function backfillSourcesFromApprovedSongs() {
+  await logEvent("🔎 מתחיל סריקת שירים מאושרים קיימים לאיתור מקורות חדשים", "info");
   const groups = await db.song.groupBy({
     by: ["artistId"],
     where: { status: "PUBLISHED", artistId: { not: null } },
@@ -485,6 +560,10 @@ export async function backfillSourcesFromApprovedSongs() {
   }
 
   const sourcesAfter = await db.botSource.count();
+  await logEvent(
+    `🏁 סיום סריקה: ${groups.length} אמנים נבדקו, ${artistsAtThreshold} מעל הסף, ${sourcesAfter - sourcesBefore} מקורות חדשים נוצרו`,
+    "success"
+  );
   return {
     artistsScanned: groups.length,
     artistsAtThreshold,
