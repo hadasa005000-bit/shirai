@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 type Thread = {
   userId: string;
@@ -19,6 +20,15 @@ type Message = {
 };
 
 export default function AdminChatPage() {
+  return (
+    <Suspense fallback={<div className="text-text/50">טוען...</div>}>
+      <AdminChatPageInner />
+    </Suspense>
+  );
+}
+
+function AdminChatPageInner() {
+  const searchParams = useSearchParams();
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selected, setSelected] = useState<Thread | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -29,12 +39,23 @@ export default function AdminChatPage() {
   async function loadThreads() {
     const res = await fetch("/api/admin/chat/threads").then((r) => r.json());
     setThreads(res.threads ?? []);
+    return res.threads ?? [];
   }
 
   async function loadMessages(userId: string) {
     const res = await fetch(`/api/admin/chat/messages?userId=${userId}`).then((r) => r.json());
     setMessages(res.messages ?? []);
   }
+
+  // תמיכה בהגעה מ"💬 שלח הודעה" בעמוד המשתמשים - פותח שיחה עם המשתמש
+  // הזה גם אם עדיין אין ביניכם אף הודעה (עדיין לא ברשימת השיחות).
+  useEffect(() => {
+    const userId = searchParams.get("userId");
+    if (!userId) return;
+    const name = searchParams.get("name") ?? "";
+    const email = searchParams.get("email") ?? "";
+    setSelected({ userId, name, email, lastMessage: "", lastMessageAt: null, unread: 0 });
+  }, [searchParams]);
 
   useEffect(() => {
     loadThreads();
@@ -77,7 +98,8 @@ export default function AdminChatPage() {
       <h1 className="font-display text-2xl font-black mb-2">💬 צ'אט עם משתמשים</h1>
       <p className="text-sm text-text/60 mb-6 max-w-2xl">
         כל משתמש רשום רואה רק את השיחה הפרטית שלו מולכם - הם לא רואים
-        זה את זה. עונים כאן כמו בכל צ'אט רגיל.
+        זה את זה. אפשר גם לפתוח שיחה חדשה עם משתמש ישירות מעמוד
+        "משתמשים".
       </p>
 
       <div className="flex gap-4 h-[32rem] bg-white/60 border border-ink/10 rounded-xl overflow-hidden">
@@ -116,6 +138,11 @@ export default function AdminChatPage() {
                 {selected.name} <span className="text-text/40 font-normal">({selected.email})</span>
               </div>
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-2">
+                {messages.length === 0 && (
+                  <p className="text-xs text-text/40 text-center mt-6">
+                    עדיין אין הודעות - כתבו למשתמש הזה הודעה ראשונה.
+                  </p>
+                )}
                 {messages.map((m) => (
                   <div
                     key={m.id}
@@ -135,7 +162,7 @@ export default function AdminChatPage() {
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && send()}
-                  placeholder="הקלידו תשובה..."
+                  placeholder="הקלידו הודעה..."
                   className="flex-1 px-3 py-2 rounded-lg border border-ink/20 text-sm"
                 />
                 <button
