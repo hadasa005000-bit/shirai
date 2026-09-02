@@ -48,6 +48,37 @@ export async function countOnline(): Promise<number> {
   return count;
 }
 
+const VISIT_KEY_PREFIX = "visit:logged:";
+const VISIT_TTL_SECONDS = 60 * 60 * 26; // קצת יותר מיממה, כדי לכסות הבדלי אזורי זמן
+
+// Fallback במקרה ש-Redis לא מוגדר (לא אמור לקרות בפרודקשן, אבל שלא ישבור
+// כלום אם כן) — מפה בזיכרון התהליך, מתאפסת אם השרת מופעל מחדש.
+const inMemoryVisitFallback = new Map<string, number>();
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+}
+
+/** האם כבר נרשם ביקור ל-sessionId הזה היום? */
+export async function wasVisitLoggedToday(sessionId: string): Promise<boolean> {
+  const key = VISIT_KEY_PREFIX + todayKey() + ":" + sessionId;
+  if (!redis) {
+    return inMemoryVisitFallback.has(key);
+  }
+  const exists = await redis.exists(key);
+  return exists === 1;
+}
+
+/** מסמן שנרשם ביקור ל-sessionId הזה היום (עם תפוגה אוטומטית). */
+export async function markVisitLoggedToday(sessionId: string) {
+  const key = VISIT_KEY_PREFIX + todayKey() + ":" + sessionId;
+  if (!redis) {
+    inMemoryVisitFallback.set(key, Date.now());
+    return;
+  }
+  await redis.set(key, "1", "EX", VISIT_TTL_SECONDS);
+}
+
 /** Simple cache helper the bot / pages can reuse. */
 export async function cacheGet<T>(key: string): Promise<T | null> {
   if (!redis) return null;
