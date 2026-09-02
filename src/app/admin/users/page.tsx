@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 export default function AdminUsers() {
   const [users, setUsers] = useState<any[]>([]);
@@ -43,6 +44,12 @@ export default function AdminUsers() {
               >
                 {u.role === "ADMIN" ? "מנהל" : "משתמש"}
               </span>
+              <Link
+                href={`/admin/chat?userId=${u.id}&name=${encodeURIComponent(u.name)}&email=${encodeURIComponent(u.email)}`}
+                className="hover:underline text-wine"
+              >
+                💬 שלח הודעה
+              </Link>
               <button onClick={() => toggleRole(u.id, u.role)} className="hover:underline text-wine">
                 {u.role === "ADMIN" ? "הסרת הרשאות ניהול" : "הפיכה למנהל"}
               </button>
