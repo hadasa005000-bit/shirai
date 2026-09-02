@@ -14,6 +14,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: "/admin/songs", label: "שירים" },
     { href: "/admin/categories", label: "קטגוריות" },
     { href: "/admin/bot", label: "בוט חיפוש שירים" },
+    { href: "/admin/analytics", label: "📊 פעילות באתר" },
     { href: "/admin/users", label: "משתמשים" },
   ];
 
