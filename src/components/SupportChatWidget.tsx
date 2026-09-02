@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 
 type Message = {
   id: string;
@@ -16,6 +17,7 @@ export default function SupportChatWidget() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  const [unread, setUnread] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   async function loadMessages() {
@@ -23,7 +25,23 @@ export default function SupportChatWidget() {
     if (!res.ok) return;
     const data = await res.json();
     setMessages(data.messages ?? []);
+    setUnread(0); // נטענו וסומנו כנקראו בשרת
   }
+
+  async function pollUnread() {
+    const res = await fetch("/api/chat/unread-count");
+    if (!res.ok) return;
+    const data = await res.json();
+    setUnread(data.count ?? 0);
+  }
+
+  // בדיקת הודעות ממתינות ברקע, גם כשהחלון סגור - כדי להראות סימן
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    pollUnread();
+    const interval = setInterval(pollUnread, 15000);
+    return () => clearInterval(interval);
+  }, [status]);
 
   useEffect(() => {
     if (status !== "authenticated" || !open) return;
@@ -54,11 +72,11 @@ export default function SupportChatWidget() {
     setSending(false);
   }
 
-  if (status !== "authenticated") return null;
+  const isAuthed = status === "authenticated";
 
   return (
     <div className="fixed bottom-4 left-4 z-50" dir="rtl">
-      {open ? (
+      {open && isAuthed && (
         <div className="w-80 h-96 bg-parchment border border-ink/20 rounded-2xl shadow-xl flex flex-col overflow-hidden">
           <div className="bg-ink text-parchment px-4 py-3 flex items-center justify-between shrink-0">
             <span className="font-bold text-sm">💬 יש לך רעיון לשיפור? כתבו לנו</span>
@@ -103,13 +121,48 @@ export default function SupportChatWidget() {
             </button>
           </div>
         </div>
-      ) : (
+      )}
+
+      {open && !isAuthed && (
+        <div className="w-72 bg-parchment border border-ink/20 rounded-2xl shadow-xl overflow-hidden">
+          <div className="bg-ink text-parchment px-4 py-3 flex items-center justify-between">
+            <span className="font-bold text-sm">💬 דברו איתנו</span>
+            <button onClick={() => setOpen(false)} className="text-parchment/70 hover:text-parchment">
+              ✕
+            </button>
+          </div>
+          <div className="p-4 text-sm text-text/70">
+            <p className="mb-4">כדי לכתוב לנו הצעות לשיפור צריך קודם להירשם (חינם, לוקח דקה).</p>
+            <div className="flex flex-col gap-2">
+              <Link
+                href="/register"
+                className="bg-gold hover:bg-gold-light text-ink font-bold text-center px-4 py-2 rounded-full transition-colors"
+              >
+                הרשמה
+              </Link>
+              <Link
+                href="/login"
+                className="border border-ink/20 text-center px-4 py-2 rounded-full hover:bg-ink/5 transition-colors"
+              >
+                כבר רשומים? כניסה
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="bg-wine text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-2xl hover:scale-105 transition-transform"
+          className="relative bg-wine text-white w-14 h-14 rounded-full shadow-xl flex items-center justify-center text-2xl hover:scale-105 transition-transform"
           title="דברו איתנו"
         >
           💬
+          {unread > 0 && (
+            <span className="absolute -top-1 -right-1 bg-gold text-ink text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center">
+              {unread}
+            </span>
+          )}
         </button>
       )}
     </div>
