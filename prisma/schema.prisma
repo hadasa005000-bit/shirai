@@ -26,6 +26,7 @@ model User {
   role         Role     @default(USER)
   createdAt    DateTime @default(now())
   favorites    Favorite[]
+  chatMessages ChatMessage[]
 }
 
 model Category {
@@ -138,6 +139,22 @@ model SiteVisit {
 
   @@index([createdAt])
   @@index([sessionId])
+}
+
+// צ'אט תמיכה פרטי — כל משתמש רשום מדבר רק מול המנהל (אתם), לא עם
+// משתמשים אחרים. כל השורות עם אותו userId שייכות לאותה שיחה.
+model ChatMessage {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  senderRole String // "user" | "admin"
+  text       String
+  readByUser  Boolean @default(false)
+  readByAdmin Boolean @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 model AppSettings {
