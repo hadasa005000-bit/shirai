@@ -1,6 +1,8 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
+import GoogleProvider from "next-auth/providers/google";
 import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
 
 export const authOptions: NextAuthOptions = {
@@ -31,12 +33,49 @@ export const authOptions: NextAuthOptions = {
         } as any;
       },
     }),
+    // מוגדר רק אם הוזנו פרטי גוגל בסביבה - כך שהאתר ממשיך לעבוד גם בלי
+    // זה, ולא שובר שום דבר אם עדיין לא הגדרתם את זה ב-Google Cloud.
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+      ? [
+          GoogleProvider({
+            clientId: process.env.GOOGLE_CLIENT_ID,
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+          }),
+        ]
+      : []),
   ],
   callbacks: {
-    async jwt({ token, user }) {
+    // בכניסה עם גוגל - אם זה אימייל שעוד לא קיים אצלנו, יוצרים למשתמש
+    // רשומה חדשה אוטומטית (בלי צורך למלא טופס הרשמה נפרד). אם האימייל
+    // כבר קיים (למשל נרשם בעבר עם סיסמה), פשוט מתחברים לאותו חשבון קיים.
+    async signIn({ user, account }) {
+      if (account?.provider === "google" && user.email) {
+        const existing = await db.user.findUnique({ where: { email: user.email } });
+        if (!existing) {
+          const passwordHash = await bcrypt.hash(randomUUID(), 10);
+          await db.user.create({
+            data: {
+              name: user.name || user.email.split("@")[0],
+              email: user.email,
+              passwordHash,
+            },
+          });
+        }
+      }
+      return true;
+    },
+    async jwt({ token, user, account }) {
       if (user) {
-        token.role = (user as any).role;
-        token.id = (user as any).id;
+        if (account?.provider === "google" && user.email) {
+          const dbUser = await db.user.findUnique({ where: { email: user.email } });
+          if (dbUser) {
+            token.id = dbUser.id;
+            token.role = dbUser.role;
+          }
+        } else {
+          token.role = (user as any).role;
+          token.id = (user as any).id;
+        }
       }
       return token;
     },
