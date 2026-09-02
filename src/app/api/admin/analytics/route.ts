@@ -26,14 +26,21 @@ export async function GET() {
   weekStart.setDate(weekStart.getDate() - 6); // 7 ימים כולל היום
   const monthStart = new Date(todayStart);
   monthStart.setDate(monthStart.getDate() - 29); // 30 יום כולל היום
+  const yearStart = new Date(todayStart);
+  yearStart.setDate(yearStart.getDate() - 364); // 365 יום כולל היום
 
-  const [today, week, month, registeredMonth, allVisits] = await Promise.all([
+  const [today, week, month, year, registeredMonth, allVisits, yearVisits] = await Promise.all([
     db.siteVisit.count({ where: { createdAt: { gte: todayStart } } }),
     db.siteVisit.count({ where: { createdAt: { gte: weekStart } } }),
     db.siteVisit.count({ where: { createdAt: { gte: monthStart } } }),
+    db.siteVisit.count({ where: { createdAt: { gte: yearStart } } }),
     db.siteVisit.count({ where: { createdAt: { gte: monthStart }, userId: { not: null } } }),
     db.siteVisit.findMany({
       where: { createdAt: { gte: monthStart } },
+      select: { createdAt: true },
+    }),
+    db.siteVisit.findMany({
+      where: { createdAt: { gte: yearStart } },
       select: { createdAt: true },
     }),
   ]);
@@ -53,12 +60,27 @@ export async function GET() {
     if (idx !== undefined) daily[idx].count += 1;
   }
 
+  // פירוט חודשי — 12 החודשים האחרונים, לתצוגת "שנה"
+  const monthly: { month: string; count: number }[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(todayStart.getFullYear(), todayStart.getMonth() - i, 1);
+    monthly.push({ month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`, count: 0 });
+  }
+  const monthlyIndex = new Map(monthly.map((m, i) => [m.month, i]));
+  for (const v of yearVisits) {
+    const key = `${v.createdAt.getFullYear()}-${String(v.createdAt.getMonth() + 1).padStart(2, "0")}`;
+    const idx = monthlyIndex.get(key);
+    if (idx !== undefined) monthly[idx].count += 1;
+  }
+
   return NextResponse.json({
     today,
     week,
     month,
+    year,
     registeredMonth,
     anonymousMonth: month - registeredMonth,
     daily,
+    monthly,
   });
 }
