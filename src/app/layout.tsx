@@ -4,6 +4,7 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import Providers from "@/components/Providers";
 import OnlineHeartbeat from "@/components/OnlineHeartbeat";
+import SupportChatWidget from "@/components/SupportChatWidget";
 
 export const metadata: Metadata = {
   title: "היכל הניגון | שירים חסידיים וחרדיים",
@@ -40,6 +41,7 @@ export default function RootLayout({
           <Header />
           <main className="flex-1">{children}</main>
           <Footer />
+          <SupportChatWidget />
         </Providers>
       </body>
     </html>
