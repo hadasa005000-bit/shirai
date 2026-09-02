@@ -4,6 +4,13 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 
+/** Render (וכל שרת מאחורי proxy) שם את ה-IP האמיתי בכותרת הזו. */
+function getClientIp(req: NextRequest): string | null {
+  const forwarded = req.headers.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0].trim();
+  return req.headers.get("x-real-ip");
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);
   const sessionId = body?.sessionId;
@@ -17,7 +24,8 @@ export async function POST(req: NextRequest) {
   if (!alreadyLoggedToday) {
     const session = await getServerSession(authOptions).catch(() => null);
     const userId = (session?.user as any)?.id ?? null;
-    await db.siteVisit.create({ data: { sessionId, userId } }).catch(() => {});
+    const ip = getClientIp(req);
+    await db.siteVisit.create({ data: { sessionId, userId, ip } }).catch(() => {});
     await markVisitLoggedToday(sessionId);
   }
 
