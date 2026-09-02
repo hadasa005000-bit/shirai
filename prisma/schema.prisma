@@ -126,6 +126,19 @@ model BotLogEntry {
   @@index([createdAt])
 }
 
+// ביקור יומי אחד לכל sessionId — נכתב פעם אחת ביום לכל מבקר (רשום או
+// אנונימי) דרך אותו heartbeat שכבר קיים לספירת "מחוברים כעת", כדי לדעת
+// כמה כניסות היו לאתר לפי יום/שבוע/חודש, כולל מבקרים לא-רשומים.
+model SiteVisit {
+  id        String   @id @default(cuid())
+  sessionId String
+  userId    String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([sessionId])
+}
+
 model AppSettings {
   id             String  @id @default("singleton")
   botAutoPublish Boolean @default(false)
